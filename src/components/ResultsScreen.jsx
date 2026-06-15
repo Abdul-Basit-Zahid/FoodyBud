@@ -1,44 +1,34 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { getMealSuggestions } from '../services/gemini';
+import { getMealSuggestions } from '../services/deepseek';
 import RecipeModal from './RecipeModal';
-import { addMealToPlan, clearImageSession, deriveFlavorTags, getDishImage, getMonday, getRestaurantImage, getTasteProfile, storage } from '../services/foodybud';
-
-const SEASONAL_PAKISTAN = {
-  0: ['citrus', 'orange', 'kinnow', 'spinach', 'carrot', 'cauliflower'],
-  1: ['citrus', 'orange', 'kinnow', 'spinach', 'peas'],
-  2: ['strawberry', 'peas', 'spinach', 'carrot'],
-  3: ['mango', 'cucumber', 'mint', 'okra'],
-  4: ['mango', 'okra', 'cucumber', 'melon'],
-  5: ['mango', 'melon', 'eggplant', 'tomato'],
-  6: ['mango', 'corn', 'cucumber', 'tomato'],
-  7: ['corn', 'eggplant', 'tomato', 'okra'],
-  8: ['apple', 'pomegranate', 'eggplant', 'tomato'],
-  9: ['apple', 'pomegranate', 'spinach', 'carrot'],
-  10: ['citrus', 'orange', 'spinach', 'carrot', 'cauliflower'],
-  11: ['citrus', 'orange', 'kinnow', 'spinach', 'peas'],
-};
+import NutritionistChat from './NutritionistChat';
+import SeasonalAlertBanner from './SeasonalAlertBanner';
+import { addMealToPlan, deriveFlavorTags, getDishImage, getMonday, getTasteProfile, storage } from '../services/foodybud';
+import { detectUserRegion, isIngredientInSeason } from '../services/seasonalIngredients';
+import { addToCart } from '../services/groceryCart';
 
 export default function ResultsScreen() {
   const location = useLocation();
   const navigate = useNavigate();
   const [data, setData] = useState(null);
+  const [rawDishes, setRawDishes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedRecipe, setSelectedRecipe] = useState(null);
-  const [coords, setCoords] = useState(null);
-  const [geoError, setGeoError] = useState(null);
   const [retryToken, setRetryToken] = useState(0);
   const [planNotice, setPlanNotice] = useState('');
   const [planTarget, setPlanTarget] = useState(null);
   const [planDay, setPlanDay] = useState('Mon');
+  const [seasonalFilter, setSeasonalFilter] = useState('');
+  const [duplicateGroups, setDuplicateGroups] = useState([]);
+  const [duplicateSelections, setDuplicateSelections] = useState({});
   const [searchState, setSearchState] = useState(() => {
     const saved = storage.get('lastSearch', JSON.parse(localStorage.getItem('moodMealLastSearch') || 'null'));
     return location.state || saved;
   });
-  const [favorites, setFavorites] = useState(() => {
-    return storage.get('favorites', JSON.parse(localStorage.getItem('moodMealFavorites') || '[]')) || [];
-  });
   const tasteProfile = useMemo(() => getTasteProfile(), []);
+  const region = useMemo(() => detectUserRegion(), []);
+  const month = new Date().getMonth();
 
   useEffect(() => {
     if (location.state) {
@@ -46,28 +36,25 @@ export default function ResultsScreen() {
     }
   }, [location.state]);
 
-  useEffect(() => {
-    if (!navigator.geolocation) {
-      setGeoError('Geolocation not supported');
-      return;
-    }
-    navigator.geolocation.getCurrentPosition(
-      (pos) => setCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-      () => setGeoError('Location permission denied'),
-      { enableHighAccuracy: false, timeout: 5000, maximumAge: 300000 }
-    );
-  }, []);
-
-  const buildDishImageUrl = (dishName, cuisine, index) => getDishImage(`${dishName}-${index}`, cuisine);
-  const buildCuisineImageUrl = (cuisine, index) => getRestaurantImage(`restaurant-${index}`, cuisine);
+  const buildDishImageUrl = (dishName, cuisine, index) => getDishImage(dishName, cuisine, index + 1);
+  const formatOneDecimal = (value) => {
+    const number = Number(value);
+    if (!Number.isFinite(number)) return '—';
+    const rounded = Math.round(number * 10) / 10;
+    return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
+  };
   const weekStartKey = getMonday(new Date()).toISOString();
   const dayKeys = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
   const isSeasonalDish = (dish) => {
-    const month = new Date().getMonth();
-    const seasonal = SEASONAL_PAKISTAN[month] || [];
     const list = [...(dish.ingredients || []), ...(dish.groceryList || [])].join(' ').toLowerCase();
-    return seasonal.some((item) => list.includes(item));
+    return isIngredientInSeason(list, region, month);
+  };
+
+  const matchesSeasonalFilter = (dish) => {
+    if (!seasonalFilter) return true;
+    const list = [...(dish.ingredients || []), ...(dish.groceryList || [])].join(' ').toLowerCase();
+    return list.includes(seasonalFilter.toLowerCase());
   };
 
   const isTasteMatch = (dish) => {
@@ -82,19 +69,64 @@ export default function ResultsScreen() {
     return ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][day] || 'Mon';
   };
 
+  const countKidHelperSteps = (steps = []) => {
+    const regex = /(mix|pour|sprinkle|arrange|decorate)/i;
+    return (steps || []).filter((step) => regex.test(step)).length;
+  };
+
+  const baseDishName = (name) => {
+    const cleaned = String(name || '')
+      .toLowerCase()
+      .replace(/\([^)]*\)/g, '')
+      .replace(/\b(spicy|extra|special|deluxe|classic|crispy|cheesy|masala|street|fusion|loaded|fried|grilled|roasted|smoky|tangy|sweet)\b/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    return cleaned;
+  };
+
+  const resolveDuplicates = (list) => {
+    const grouped = {};
+    list.forEach((dish) => {
+      const key = baseDishName(dish.name);
+      if (!key) return;
+      grouped[key] = grouped[key] || [];
+      grouped[key].push(dish);
+    });
+
+    const groups = Object.entries(grouped)
+      .filter(([, items]) => items.length > 1)
+      .map(([key, items]) => ({ key, items }));
+
+    if (!groups.length) return { groups: [], resolved: list };
+
+    const selectedKeys = {};
+    groups.forEach((group) => {
+      if (duplicateSelections[group.key]) { selectedKeys[group.key] = duplicateSelections[group.key]; } else {
+        const shortest = [...group.items].sort((a, b) => a.name.length - b.name.length)[0];
+        selectedKeys[group.key] = shortest.name;
+      }
+    });
+
+    const resolved = list.filter((dish) => {
+      const key = baseDishName(dish.name);
+      if (!selectedKeys[key]) return true;
+      return selectedKeys[key] === dish.name;
+    });
+
+    return { groups, resolved, selectedKeys };
+  };
+
   useEffect(() => {
     if (!searchState) {
       navigate('/');
       return;
     }
 
-    clearImageSession();
-
-    const { mood, cuisine, budget, currency, diets, mealType, leftovers, goalMode, chefStyle, allergies, dailyTarget, mealTarget, householdProfiles } = searchState;
+    const { mood, cuisine, budget, currency, diets, mealType, leftovers, goalMode, chefStyle, allergies, dailyTarget, mealTarget, householdProfiles, kidsMode, kidsAgeRange } = searchState;
     
     const fetchMeals = async () => {
       try {
-        const history = storage.get('history', JSON.parse(localStorage.getItem('moodMealHistory') || '[]'));
+        const history = storage.get('history', ([] /* safe fallback */));
         
         const result = await getMealSuggestions(
           mood,
@@ -104,7 +136,7 @@ export default function ResultsScreen() {
           diets || [],
           mealType,
           leftovers || '',
-          history.map(h => h.name),
+          (Array.isArray(history) ? history : []).map(h => h.name),
           {
             goalMode,
             chefStyle,
@@ -112,20 +144,28 @@ export default function ResultsScreen() {
             dailyTarget,
             mealTarget,
             householdProfiles: householdProfiles || [],
+            kidsMode,
+            kidsAgeRange,
           }
         );
         
         if (result && result.dishes) {
-          result.dishes = result.dishes.map((dish, index) => ({
+          // Build AI-generated image URLs (Pollinations.ai renders on demand when the browser loads the src)
+          const withImages = result.dishes.map((dish, index) => ({
             ...dish,
-            imageUrl: buildDishImageUrl(dish.name, cuisine, index)
+            imageUrl: getDishImage(dish.name, cuisine, index)
           }));
+          const { groups, resolved, selectedKeys } = resolveDuplicates(withImages);
+          setDuplicateGroups(groups);
+          setDuplicateSelections(selectedKeys || {});
+          setRawDishes(withImages);
+          result.dishes = resolved;
         }
 
         setData(result);
       } catch (err) {
         console.error("Failed to fetch meals:", err);
-        setData({ dishes: [], cookSavings: 0 });
+        setData({ dishes: [], cookSavings: 0, errorMessage: err.message });
       } finally {
         setLoading(false);
       }
@@ -139,30 +179,10 @@ export default function ResultsScreen() {
     setRetryToken((value) => value + 1);
   };
 
-  const buildMapsUrl = (dishName, cuisine) => {
-    const query = `${dishName} ${cuisine} restaurant`;
-    if (coords?.lat && coords?.lng) {
-      return `https://www.google.com/maps/search/${encodeURIComponent(query)}/@${coords.lat},${coords.lng},14z`;
-    }
-    return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
-  };
 
-  const createVotingSession = (dishes) => {
-    const sessionId = Math.random().toString(36).slice(2, 11);
-    const session = {
-      id: sessionId,
-      dishes: dishes.slice(0, 3).map((dish) => ({ name: dish.name, time: dish.time, orderCost: dish.orderCost, votes: 0, voters: [] })),
-      createdAt: new Date().toISOString(),
-      expiresAt: new Date(Date.now() + 3600000).toISOString(),
-      createdBy: 'You',
-    };
-    storage.set(`vote_${sessionId}`, session);
-    const shareUrl = `${window.location.origin}?vote=${sessionId}`;
-    window.open(`https://wa.me/?text=${encodeURIComponent(`🍽️ Help me decide tonight's dinner!\n\nVote here: ${shareUrl}\n\nExpires in 1 hour`)}`, '_blank', 'noopener,noreferrer');
-  };
 
   const handleSaveToHistory = (dish) => {
-    const history = storage.get('history', JSON.parse(localStorage.getItem('moodMealHistory') || '[]'));
+    const history = storage.get('history', ([] /* safe fallback */));
     const date = new Date().toLocaleDateString();
     history.unshift({ ...dish, dateEaten: date });
     storage.set('history', history.slice(0, 50));
@@ -186,16 +206,10 @@ export default function ResultsScreen() {
     navigate('/planner');
   };
 
-  const toggleFavorite = (dish, e) => {
+  const handleAddToCart = async (dish, e) => {
     e.stopPropagation();
-    let newFavs;
-    if (favorites.some(f => f.name === dish.name)) {
-      newFavs = favorites.filter(f => f.name !== dish.name);
-    } else {
-      newFavs = [{ ...dish, dateAdded: new Date().toLocaleDateString() }, ...favorites];
-    }
-    setFavorites(newFavs);
-    storage.set('favorites', newFavs);
+    const list = dish.groceryList || dish.ingredients || [];
+    await addToCart(list, dish.name || 'Meal', 2);
   };
 
   if (loading) {
@@ -209,8 +223,8 @@ export default function ResultsScreen() {
 
   if (!data || !data.dishes || !data.dishes.length) {
     const errorMessage = data?.error === 'rate_limit'
-      ? 'Gemini rate limit hit. Please wait a minute and try again.'
-      : 'No dishes found. Try again in a moment or change your inputs.';
+      ? 'DeepSeek rate limit hit. Please wait a minute and try again.'
+      : data?.errorMessage || 'No dishes found. Try again in a moment or change your inputs.';
     return (
       <div className="container py-20 text-center">
         <h2 className="text-3xl font-black mb-4">No dishes found</h2>
@@ -224,7 +238,10 @@ export default function ResultsScreen() {
   }
 
   const { dishes, cookSavings } = data;
+  const filteredDishes = dishes.filter(matchesSeasonalFilter);
+  const primaryDishes = filteredDishes.length ? filteredDishes : dishes;
   const currency = searchState.currency;
+  const chatRecipe = selectedRecipe || primaryDishes?.[0] || null;
 
   const formatMacro = (value, suffix = 'g') => {
     if (value == null) return '—';
@@ -234,22 +251,60 @@ export default function ResultsScreen() {
 
   return (
     <div className="screen-enter pb-24 w-full relative">
-      <div className="savings-banner">
-        <div className="savings-banner-stat">
-          <div className="value">{currency} {dishes[0].cookCost}</div>
-          <div className="label">Cook Cost</div>
+      {duplicateGroups.length ? (
+        <div className="fixed inset-0 z-[130] flex items-center justify-center p-4 bg-modal backdrop-blur-md">
+          <div className="w-full max-w-2xl bg-surface text-text-primary rounded-3xl p-6 shadow-2xl border border-border-subtle animate-scale-in">
+            <div className="flex items-center justify-between mb-4 border-b border-border-subtle pb-4">
+              <div>
+                <p className="text-xs uppercase tracking-[0.2em] text-text-tertiary font-bold">Pick your version</p>
+                <h3 className="text-2xl font-black font-display">We found similar dishes</h3>
+              </div>
+            </div>
+            <div className="space-y-4 max-h-[50vh] overflow-y-auto pr-1">
+              {duplicateGroups.map((group) => (
+                <div key={group.key} className="card bg-surface-2">
+                  <div className="text-sm font-semibold text-text-secondary mb-2">{group.key}</div>
+                  <div className="flex flex-wrap gap-2">
+                    {group.items.map((item) => (
+                      <button
+                        key={item.name}
+                        onClick={() => setDuplicateSelections((prev) => ({ ...prev, [group.key]: item.name }))}
+                        className={`chip ${duplicateSelections[group.key] === item.name ? 'active' : ''}`}
+                      >
+                        {item.name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                onClick={() => {
+                  const { resolved } = resolveDuplicates(rawDishes || []);
+                  setData((prev) => ({ ...prev, dishes: resolved }));
+                  setDuplicateGroups([]);
+                }}
+                className="btn btn-primary"
+              >
+                Use selections
+              </button>
+            </div>
+          </div>
         </div>
-        <div className="savings-divider"></div>
-        <div className="savings-banner-stat">
-          <div className="value text-success">{currency} {cookSavings}</div>
-          <div className="label">Savings</div>
-        </div>
-        <div className="savings-divider"></div>
-        <div className="savings-banner-stat">
-          <div className="value opacity-80">{currency} {dishes[0].orderCost}</div>
-          <div className="label">Order Cost</div>
-        </div>
-      </div>
+      ) : null}
+
+      <SeasonalAlertBanner
+        ingredients={dishes.flatMap((dish) => {
+          const list = [...(dish.ingredients || []), ...(dish.groceryList || [])];
+          return list.filter((ingredient) => isIngredientInSeason(ingredient, region, month));
+        })}
+        onSelect={(ingredient) => {
+          setSeasonalFilter((prev) => (prev?.toLowerCase() === ingredient.toLowerCase() ? '' : ingredient));
+        }}
+      />
+
+
       {planNotice ? (
         <div className="container mb-4">
           <div className="card bg-success-light border-success">
@@ -269,45 +324,34 @@ export default function ResultsScreen() {
         </div>
       ) : null}
 
-      <div className="container mt-2">
-        <button onClick={() => createVotingSession(dishes)} className="btn btn-secondary w-full mb-6">
-          👪 Vote with Family
-        </button>
-      </div>
+
 
       <div className="results-split">
         {/* Cook Column */}
-        <div className="flex flex-col gap-4">
-          <div className="result-column-header cook-header">
-            <span>🧑‍🍳</span> Cook It Yourself
+        <div className="grid grid-cols-1 gap-4">
+          <div className="col-span-1">
+            <div className="result-column-header cook-header">
+              <span>🧑‍🍳</span> Your Meals
+            </div>
           </div>
-          {dishes.map((dish, idx) => (
+          {primaryDishes.length === 0 ? (
+            <div className="col-span-1 card bg-surface-2 text-text-secondary">No dishes match the seasonal filter. Try another ingredient.</div>
+          ) : null}
+          {primaryDishes.map((dish, idx) => (
             <div 
               key={`cook-${idx}`} 
               className={`dish-card stagger-${(idx % 5) + 1}`}
               onClick={() => setSelectedRecipe(dish)}
             >
-              <div className="dish-card-image">
-                <img 
-                  src={dish.imageUrl} 
-                  alt={dish.name}
-                  className="w-full h-full object-cover"
-                  onError={(e) => { e.target.src = "https://images.unsplash.com/photo-1504674900247-0877df9cc836?q=80&w=800&auto=format&fit=crop"; }}
-                />
-                <button 
-                  onClick={(e) => toggleFavorite(dish, e)}
-                  className="dish-heart"
-                >
-                  <span className={favorites.some(f => f.name === dish.name) ? 'text-error' : 'text-text-tertiary'}>
-                    {favorites.some(f => f.name === dish.name) ? '❤️' : '🤍'}
-                  </span>
-                </button>
-              </div>
               <div className="dish-card-body">
                 <h3 className="dish-name line-clamp-2">{dish.name}</h3>
                 <div className="flex flex-wrap gap-2 mb-3">
                   {isTasteMatch(dish) ? <span className="badge badge-premium">Based on your taste</span> : null}
                   {isSeasonalDish(dish) ? <span className="badge badge-success">Seasonal</span> : null}
+                  {searchState?.kidsMode ? <span className="badge badge-success">Kid-friendly</span> : null}
+                  {searchState?.kidsMode && countKidHelperSteps(dish.steps) > 0 ? (
+                    <span className="badge badge-secondary">Helper steps: {countKidHelperSteps(dish.steps)}</span>
+                  ) : null}
                 </div>
                 
                 <div className="dish-meta">
@@ -321,8 +365,15 @@ export default function ResultsScreen() {
                   <div className="dish-meta-item">🧈 F {formatMacro(dish.macros?.fats)}</div>
                 </div>
 
+                {searchState?.kidsMode ? (
+                  <div className="mt-3 text-sm text-text-secondary">
+                    {dish.whyThisMood ? <div className="mb-1">{dish.whyThisMood}</div> : null}
+                    {dish.funPlatingTip ? <div className="text-text-tertiary">🎨 {dish.funPlatingTip}</div> : null}
+                  </div>
+                ) : null}
+
                 <div className="flex items-center justify-between mt-2">
-                  <div className="dish-cost">{currency} {dish.cookCost}</div>
+                  <div className="dish-cost">{currency} {formatOneDecimal(dish.cookCost)}</div>
                   <div className="flex gap-2">
                     <button className="btn btn-sm btn-secondary" onClick={(e) => { e.stopPropagation(); handlePlanMeal(dish); }}>
                       Plan
@@ -330,57 +381,17 @@ export default function ResultsScreen() {
                     <button className="btn btn-sm btn-primary" onClick={(e) => { e.stopPropagation(); setSelectedRecipe(dish); }}>
                       Recipe
                     </button>
+                    <button className="btn btn-sm btn-ghost" onClick={(e) => handleAddToCart(dish, e)}>
+                      🛒
+                    </button>
                   </div>
                 </div>
-                {dish.orderCost != null ? (
-                  <div className="mt-3 text-xs font-semibold text-success">
-                    Save {currency} {Math.max(0, dish.orderCost - dish.cookCost)} by cooking · ~{currency} {Math.max(0, (dish.orderCost - dish.cookCost) * 4)} / month
-                  </div>
-                ) : null}
+
               </div>
             </div>
           ))}
         </div>
 
-        {/* Order Column */}
-        <div className="flex flex-col gap-4">
-          <div className="result-column-header order-header">
-            <span>🗺️</span> Nearby Restaurants
-          </div>
-          {dishes.map((dish, idx) => (
-            <div key={`order-${idx}`} className={`dish-card stagger-${(idx % 5) + 1}`}>
-              <div className="dish-card-image" style={{ height: '120px' }}>
-                <img 
-                  src={buildCuisineImageUrl(searchState.cuisine, idx)}
-                  alt="Restaurant"
-                  className="w-full h-full object-cover"
-                />
-              </div>
-              <div className="dish-card-body">
-                <h3 className="dish-name line-clamp-1 text-lg">{dish.name}</h3>
-                
-                <div className="dish-meta">
-                  <div className="dish-meta-item">📍 {coords ? 'Near you' : geoError ? 'Location off' : 'Searching nearby'}</div>
-                  <div className="dish-meta-item">⭐ Google Maps</div>
-                </div>
-
-                <div className="flex items-center justify-between mt-2">
-                  <div className="dish-cost" style={{ fontSize: 'var(--text-lg)' }}>{currency} {dish.orderCost}</div>
-                  <button 
-                    className="btn btn-sm btn-secondary"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleSaveToHistory(dish);
-                      window.open(buildMapsUrl(dish.name, searchState.cuisine), '_blank', 'noopener,noreferrer');
-                    }}
-                  >
-                    View on Maps
-                  </button>
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
       </div>
 
       {selectedRecipe && (
@@ -392,6 +403,8 @@ export default function ResultsScreen() {
           onSave={() => handleSaveToHistory(selectedRecipe)}
         />
       )}
+
+      <NutritionistChat recipe={chatRecipe} />
 
       {planTarget ? (
         <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-modal backdrop-blur-md">

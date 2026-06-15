@@ -42,6 +42,6 @@ export const getPricing = async () => {
     case 'KW':
     case 'OM':
     case 'BH': return { price: '$3.49', currency: 'USD', period: 'month' };
-    default: return { price: '$1.99', currency: 'USD', period: 'month' };
+    default: return { price: 'Rs. 299', currency: 'PKR', period: 'month' };
   }
 };

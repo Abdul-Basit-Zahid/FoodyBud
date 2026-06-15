@@ -1,23 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { Plus, Sparkles, X } from 'lucide-react';
 
-const MOCK_RECIPES = [
-  {
-    id: 'fp-1',
-    title: 'Pantry Herb Omelette',
-    ingredients: ['eggs', 'parsley', 'butter', 'garlic'],
-  },
-  {
-    id: 'fp-2',
-    title: 'Citrus Chickpea Bowl',
-    ingredients: ['chickpeas', 'spinach', 'orange', 'olive oil'],
-  },
-  {
-    id: 'fp-3',
-    title: 'Spiced Tomato Toast',
-    ingredients: ['bread', 'tomato', 'chili flakes', 'olive oil'],
-  },
-];
 
 export default function FridgeToPlate() {
   const [tags, setTags] = useState([]);
@@ -45,7 +28,7 @@ export default function FridgeToPlate() {
 
   const generate = () => {
     if (!canGenerate) return;
-    setResults(MOCK_RECIPES);
+    setResults([]);
   };
 
   return (
@@ -106,7 +89,9 @@ export default function FridgeToPlate() {
             </div>
           ))}
         </div>
-      ) : null}
+      ) : (
+        <div className="mt-6 text-sm text-text-tertiary">No recipes yet. Coming soon.</div>
+      )}
     </section>
   );
 }

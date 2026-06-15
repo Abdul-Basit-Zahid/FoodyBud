@@ -21,6 +21,12 @@ export default function RecipeRemixTracker() {
   const [fastStart, setFastStart] = useState('20:00');
   const [fastEnd, setFastEnd] = useState('12:00');
   const [logs, setLogs] = useState(loadLogs);
+  const formatOneDecimal = (value) => {
+    const number = Number(value);
+    if (!Number.isFinite(number)) return '0';
+    const rounded = Math.round(number * 10) / 10;
+    return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
+  };
 
   const toggleFlavor = (label) => {
     setFlavors((prev) => (prev.includes(label) ? prev.filter((item) => item !== label) : [...prev, label]));
@@ -120,7 +126,7 @@ export default function RecipeRemixTracker() {
             <div key={entry.id} className="bg-surface-2 border border-border-subtle rounded-2xl px-4 py-3">
               <div className="flex items-center justify-between text-sm text-text-secondary">
                 <span>Spice: <span className="font-mono text-brand">{entry.spiceLevel}</span></span>
-                <span>Calories: <span className="font-mono text-brand">{entry.calories}</span></span>
+                <span>Calories: <span className="font-mono text-brand">{formatOneDecimal(entry.calories)}</span></span>
               </div>
               <div className="text-xs text-text-tertiary mt-1">Fast: {entry.fastingWindow}</div>
               <div className="mt-2 flex flex-wrap gap-2">

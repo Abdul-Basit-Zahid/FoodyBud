@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { BarChart3, CalendarDays, Flame, HeartPulse, Package, Settings2, Wallet } from 'lucide-react';
 import {
   addPantryItem,
-  callGemini,
+  callDeepSeek,
   deductFromBudget,
   generateWeeklyReport,
   getMoodHistory,
@@ -293,7 +293,7 @@ export default function ProfileScreen() {
 
   const downloadOfflinePack = async () => {
     try {
-      const recipes = await callGemini(OFFLINE_PACK_PROMPT);
+      const recipes = await callDeepSeek(OFFLINE_PACK_PROMPT);
       const db = await openDB('FoodyBudOffline', 1);
       const tx = db.transaction(['recipes', 'meta'], 'readwrite');
       tx.objectStore('recipes').put(recipes, 'offlinePack');
@@ -388,21 +388,7 @@ export default function ProfileScreen() {
       {activeTab === 'dashboard' ? (
 
       <div className="bento-grid">
-        {/* Budget */}
-        <div className="bento-tile">
-          <div className="flex items-center gap-3 mb-4"><Wallet className="text-text-brand" /><h2 className="text-2xl font-black font-display">Grocery Budget</h2></div>
-          <div className="progress-track mb-3">
-            <div className={`progress-fill ${budgetPercent > 50 ? 'success' : budgetPercent > 25 ? 'warning' : 'error'}`} style={{ width: `${budgetPercent}%` }} />
-          </div>
-          <div className="flex justify-between text-sm mb-4 font-medium text-text-secondary">
-            <span>{budgetRemaining ? `Rs. ${budgetRemaining} left` : 'No budget set'}</span>
-            <span>Rs. {budget.spent || 0} / {budget.total || 0}</span>
-          </div>
-          <div className="flex gap-2">
-            <input value={budgetDraft} onChange={(e) => setBudgetDraft(e.target.value)} placeholder="Weekly budget" className="input flex-1 py-2 px-3" />
-            <button onClick={saveBudget} className="btn btn-primary btn-sm">Save</button>
-          </div>
-        </div>
+
 
         {/* Nutrition */}
         <div className="bento-tile">

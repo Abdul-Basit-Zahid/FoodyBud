@@ -12,6 +12,12 @@ export default function VotingScreen() {
   const navigate = useNavigate();
   const [session, setSession] = useState(null);
   const sessionId = useMemo(() => getSessionId(), [location.search]);
+  const formatOneDecimal = (value) => {
+    const number = Number(value);
+    if (!Number.isFinite(number)) return '—';
+    const rounded = Math.round(number * 10) / 10;
+    return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
+  };
 
   useEffect(() => {
     if (!sessionId) return;
@@ -62,7 +68,7 @@ export default function VotingScreen() {
           <div key={dish.name} className="card flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
               <h3 className="text-xl font-bold font-display">{dish.name}</h3>
-              <p className="text-sm text-text-secondary font-medium">{dish.time || '—'} · {dish.orderCost ? `Rs. ${dish.orderCost}` : ''}</p>
+              <p className="text-sm text-text-secondary font-medium">{dish.time || '—'} · {dish.orderCost != null ? `Rs. ${formatOneDecimal(dish.orderCost)}` : ''}</p>
             </div>
             <button onClick={() => castVote(dish.name)} className="btn btn-primary w-full sm:w-auto shadow-brand">Vote for this</button>
           </div>

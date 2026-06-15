@@ -1,9 +1,13 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import ChefMode from './ChefMode';
+import GroceryPriceTracker from './GroceryPriceTracker';
+import NutritionistChat from './NutritionistChat';
+import { detectUserRegion, isIngredientInSeason } from '../services/seasonalIngredients';
+import { addToCart } from '../services/groceryCart';
 import { createPortal } from 'react-dom';
 import { X, Play, Share2, Loader2 } from 'lucide-react';
 import { getDishImage, deriveFlavorTags, getActiveProfileId, getDishRatings, saveDishRating } from '../services/foodybud';
-import { getIngredientSubstitutes } from '../services/gemini';
+import { getIngredientSubstitutes, getDetailedChefSteps } from '../services/deepseek';
 
 const parseFraction = (value) => {
   if (!value) return null;
@@ -23,8 +27,15 @@ const parseFraction = (value) => {
 
 const formatQuantity = (value) => {
   if (!Number.isFinite(value)) return '';
-  const rounded = Math.round(value * 100) / 100;
-  return String(rounded).replace(/\.00$/, '');
+  const rounded = Math.round(value * 10) / 10;
+  return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
+};
+
+const formatOneDecimal = (value) => {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return '—';
+  const rounded = Math.round(number * 10) / 10;
+  return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
 };
 
 const scaleIngredientText = (text, ratio) => {
@@ -63,6 +74,8 @@ export default function RecipeModal({ recipe, currency, searchContext, onClose, 
 
   const [ownedItems, setOwnedItems] = useState(new Set());
   const [chefMode, setChefMode] = useState(false);
+  const [detailedSteps, setDetailedSteps] = useState(null);
+  const [chefLoading, setChefLoading] = useState(false);
   const [isGeneratingImage, setIsGeneratingImage] = useState(false);
   const baseServings = recipe.portion?.servings || 2;
   const [servings, setServings] = useState(baseServings);
@@ -73,12 +86,17 @@ export default function RecipeModal({ recipe, currency, searchContext, onClose, 
   const [substitutionTarget, setSubstitutionTarget] = useState(null);
   const [substitutionResults, setSubstitutionResults] = useState([]);
   const [substitutionLoading, setSubstitutionLoading] = useState(false);
+  const [priceTrackerIngredient, setPriceTrackerIngredient] = useState('');
+  const [showPriceTracker, setShowPriceTracker] = useState(false);
+  const [cartNotice, setCartNotice] = useState('');
   const profileIds = useMemo(() => {
     const fromContext = (searchContext?.householdProfiles || []).map((profile) => profile.id).filter(Boolean);
     if (fromContext.length) return fromContext;
     const active = getActiveProfileId();
     return active ? [active] : [];
   }, [searchContext]);
+  const seasonalRegion = useMemo(() => detectUserRegion(), []);
+  const seasonalMonth = new Date().getMonth();
 
   const handleShareImage = async () => {
     try {
@@ -110,7 +128,7 @@ export default function RecipeModal({ recipe, currency, searchContext, onClose, 
       if (recipe.macros) {
         ctx.font = 'bold 50px sans-serif';
         ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--brand-primary').trim();
-        ctx.fillText(`${recipe.macros.calories} kcal | ${recipe.macros.protein} Prot`, 540, 1400);
+        ctx.fillText(`${formatOneDecimal(recipe.macros.calories)} kcal | ${recipe.macros.protein} Prot`, 540, 1400);
       }
       
       ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--text-secondary').trim();
@@ -143,21 +161,42 @@ export default function RecipeModal({ recipe, currency, searchContext, onClose, 
     setOwnedItems(newOwned);
   };
 
-  const handleOrderGroceries = () => {
+  const handleAddToCart = async () => {
     const itemsToBuy = scaledIngredients.filter((_, i) => !ownedItems.has(i));
     if (itemsToBuy.length === 0) {
-      alert("You already have everything!");
+      setCartNotice('You already have everything.');
       return;
     }
-    const list = itemsToBuy.join('%0A- ');
-    const message = `Hi! I need to order groceries for ${recipe.name}. Here is my list:%0A- ${list}`;
-    window.open(`https://api.whatsapp.com/send?text=${message}`, '_blank', 'noopener,noreferrer');
+    await addToCart(itemsToBuy, recipe.name || recipe.dishName || 'Recipe', servings);
+    setCartNotice('Added to Smart Cart.');
   };
 
   const handleRateDish = (value) => {
     const tags = deriveFlavorTags(recipe.name, recipeIngredients);
     saveDishRating({ name: recipe.name, cuisine: searchContext?.cuisine || recipe.cuisine, rating: value, tags });
     setRating(value);
+  };
+
+  const handleEnterChefMode = async () => {
+    // If we already fetched detailed steps, go straight in
+    if (detailedSteps) { setChefMode(true); return; }
+    setChefLoading(true);
+    try {
+      const steps = await getDetailedChefSteps(
+        recipe.name || recipe.dishName || 'Recipe',
+        recipe.cuisine || searchContext?.cuisine || 'General',
+        recipe.groceryList || recipe.ingredients || [],
+        recipe.steps || []
+      );
+      if (steps && steps.length > 0) {
+        setDetailedSteps(steps);
+      }
+    } catch (err) {
+      console.error('Chef steps expansion failed, falling back to basic steps', err);
+    } finally {
+      setChefLoading(false);
+      setChefMode(true);
+    }
   };
 
   const handleSubstitutes = async (ingredient) => {
@@ -181,6 +220,11 @@ export default function RecipeModal({ recipe, currency, searchContext, onClose, 
     }
   };
 
+  const handleOpenPriceTracker = (ingredient) => {
+    setPriceTrackerIngredient(ingredient);
+    setShowPriceTracker(true);
+  };
+
   return createPortal(
     <div className="recipe-modal">
       <div className="recipe-modal-backdrop" onClick={onClose}></div>
@@ -194,12 +238,17 @@ export default function RecipeModal({ recipe, currency, searchContext, onClose, 
             difficulty: recipe.difficulty || 'Medium',
             cuisine: searchContext?.cuisine || recipe.cuisine || 'Food',
             groceryList: recipe.groceryList || recipe.ingredients || [],
-            prepSteps: (recipe.steps || []).map((s, i) => ({ stepNumber: i+1, instruction: s, stepIngredients: recipe.groceryList ? recipe.groceryList.slice(0,2) : [], timerSeconds: null, tip: null })),
-            cookSteps: [],
-            platingStep: null,
+            prepSteps: detailedSteps
+              ? detailedSteps.filter(s => s.phase !== 'plate' && s.phase !== 'cook')
+              : (recipe.steps || []).map((s, i) => ({ stepNumber: i+1, instruction: s, stepIngredients: recipe.groceryList ? recipe.groceryList.slice(0,2) : [], timerSeconds: null, tip: null })),
+            cookSteps: detailedSteps ? detailedSteps.filter(s => s.phase === 'cook') : [],
+            platingStep: detailedSteps ? (detailedSteps.find(s => s.phase === 'plate') || null) : null,
             savings: recipe.cookCost ? recipe.orderCost - recipe.cookCost : 0,
             totalCalories: recipe.macros ? recipe.macros.calories : null,
-            macros: recipe.macros || null
+            macros: recipe.macros || null,
+            kidsMode: recipe.kidsMode,
+            kidsAgeRange: recipe.kidsAgeRange,
+            funPlatingTip: recipe.funPlatingTip
           }} profileIds={profileIds} onClose={() => setChefMode(false)} />
         ) : (
           <>
@@ -210,7 +259,7 @@ export default function RecipeModal({ recipe, currency, searchContext, onClose, 
                 className="w-full h-full object-cover"
                 onError={(e) => {
                   e.target.onerror = null;
-                  e.target.src = "https://images.unsplash.com/photo-1495521821757-a1efb6729352?q=80&w=1200&auto=format&fit=crop";
+                  e.target.src = `https://loremflickr.com/800/600/${encodeURIComponent(recipe.name + ',food')}?lock=99`;
                 }}
               />
               <div className="absolute inset-0 bg-gradient-to-t from-modal via-modal to-transparent"></div>
@@ -234,10 +283,11 @@ export default function RecipeModal({ recipe, currency, searchContext, onClose, 
               <div className="absolute bottom-4 left-4 right-4 text-text-inverse flex justify-between items-end">
                 <h2 className="font-display text-2xl font-bold leading-tight">{recipe.name}</h2>
                 <button 
-                  onClick={() => setChefMode(true)}
-                  className="btn btn-primary px-6 shadow-lg flex items-center gap-2"
+                  onClick={handleEnterChefMode}
+                  disabled={chefLoading}
+                  className="btn btn-primary px-6 shadow-lg flex items-center gap-2 disabled:opacity-70"
                 >
-                  <Play className="w-4 h-4 fill-current" /> Chef Mode
+                  {chefLoading ? <><Loader2 className="w-4 h-4 animate-spin" /> Preparing...</> : <><Play className="w-4 h-4 fill-current" /> Chef Mode</>}
                 </button>
               </div>
             </div>
@@ -246,7 +296,7 @@ export default function RecipeModal({ recipe, currency, searchContext, onClose, 
               <div className="flex gap-4 mb-2 overflow-x-auto pb-2 scrollbar-hide">
                 <div className="badge badge-brand flex-shrink-0">⏱️ {recipe.time}</div>
                 <div className="badge badge-success flex-shrink-0">📊 {recipe.difficulty}</div>
-                <div className="badge badge-warning flex-shrink-0">💰 {currency} {recipe.cookCost}</div>
+                <div className="badge badge-warning flex-shrink-0">💰 {currency} {formatOneDecimal(recipe.cookCost)}</div>
               </div>
 
               {recipe.portion?.note ? (
@@ -272,7 +322,7 @@ export default function RecipeModal({ recipe, currency, searchContext, onClose, 
 
               {recipe.macros && (
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                  <div className="badge badge-secondary">🔥 {recipe.macros.calories || '—'} kcal</div>
+                  <div className="badge badge-secondary">🔥 {formatOneDecimal(recipe.macros.calories)} kcal</div>
                   <div className="badge badge-secondary">🥩 {recipe.macros.protein || '—'} protein</div>
                   <div className="badge badge-secondary">🍚 {recipe.macros.carbs || '—'} carbs</div>
                   <div className="badge badge-secondary">🧈 {recipe.macros.fats || '—'} fats</div>
@@ -282,13 +332,15 @@ export default function RecipeModal({ recipe, currency, searchContext, onClose, 
               <div>
                 <div className="flex justify-between items-baseline mb-4">
                   <h3 className="text-xl font-bold font-display">Ingredients</h3>
-                  <button onClick={handleOrderGroceries} className="text-xs font-bold text-text-brand underline">Order Missings</button>
+                  <button onClick={handleAddToCart} className="text-xs font-bold text-text-brand underline">Add to Cart</button>
                 </div>
+                {cartNotice ? <div className="text-xs text-text-tertiary mb-2">{cartNotice}</div> : null}
                 
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   {scaledIngredients.map((item, i) => {
                     const isOwned = ownedItems.has(i);
                     const name = item.split(' - ')[0];
+                    const seasonal = isIngredientInSeason(name, seasonalRegion, seasonalMonth);
                     return (
                       <div key={i} className="flex gap-2">
                         <button
@@ -300,6 +352,17 @@ export default function RecipeModal({ recipe, currency, searchContext, onClose, 
                           }`}
                         >
                           {isOwned ? '✓ ' : '+ '}{item}
+                        </button>
+                        {seasonal ? (
+                          <span className="text-success text-sm mt-2" title="In season">
+                            🌿
+                          </span>
+                        ) : null}
+                        <button
+                          onClick={() => handleOpenPriceTracker(name)}
+                          className="btn btn-ghost btn-sm"
+                        >
+                          🏷️
                         </button>
                         <button
                           onClick={() => handleSubstitutes(name)}
@@ -382,6 +445,13 @@ export default function RecipeModal({ recipe, currency, searchContext, onClose, 
           </div>
         </div>
       )}
+      {showPriceTracker ? (
+        <GroceryPriceTracker
+          initialIngredient={priceTrackerIngredient}
+          onClose={() => setShowPriceTracker(false)}
+        />
+      ) : null}
+      <NutritionistChat recipe={recipe} />
     </div>,
     document.body
   );

@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Mic, Loader2 } from 'lucide-react';
-import { parseVoiceInput } from '../services/gemini';
+import { parseVoiceInput } from '../services/deepseek';
 import {
   getNutritionGoals,
   getTodayNutrition,
@@ -12,6 +12,7 @@ import {
   getMealCalorieTarget,
   storage
 } from '../services/foodybud';
+import { detectUserRegion, getSeasonalIngredients } from '../services/seasonalIngredients';
 
 const MOODS = [
   { emoji: '😴', label: 'Tired', token: '--mood-tired' },
@@ -37,6 +38,8 @@ const GOAL_MODES = [
   { id: 'maintain', label: 'Maintain', hint: 'steady calories' },
   { id: 'surplus', label: 'Bulk up', hint: '+300 kcal/day' },
 ];
+
+const KIDS_AGE_RANGES = ['Toddler 1-3', 'Little ones 4-7', 'Big kids 8-12'];
 
 const CHEF_STYLES = [
   'Pakistani dhaba style',
@@ -70,6 +73,8 @@ export default function InputScreen({ onSearch }) {
   const [useSmartPortions, setUseSmartPortions] = useState(true);
   const [householdMode, setHouseholdMode] = useState(false);
   const [householdIds, setHouseholdIds] = useState([]);
+  const [kidsModeEnabled, setKidsModeEnabled] = useState(() => storage.get('kidsMode', { enabled: false, ageRange: 'Little ones 4-7' }).enabled);
+  const [kidsAgeRange, setKidsAgeRange] = useState(() => storage.get('kidsMode', { enabled: false, ageRange: 'Little ones 4-7' }).ageRange || 'Little ones 4-7');
   
   const [isRecording, setIsRecording] = useState(false);
   const [isParsingVoice, setIsParsingVoice] = useState(false);
@@ -89,6 +94,8 @@ export default function InputScreen({ onSearch }) {
   const effectiveProfile = useSmartPortions ? selectedProfiles[0] : null;
   const dailyTarget = effectiveProfile ? getDailyCalorieTarget(effectiveProfile, goalMode) : null;
   const mealTarget = dailyTarget ? getMealCalorieTarget(dailyTarget, mealType) : null;
+  const seasonalRegion = useMemo(() => detectUserRegion(), []);
+  const seasonalCount = useMemo(() => getSeasonalIngredients(seasonalRegion).length, [seasonalRegion]);
 
   const navigate = useNavigate();
 
@@ -102,12 +109,19 @@ export default function InputScreen({ onSearch }) {
     else if (country === 'IN') setCurrency('INR');
     else if (country === 'AE' || country === 'SA') setCurrency('AED');
     else if (country === 'PK') setCurrency('PKR');
-    else setCurrency('USD');
+    else setCurrency('PKR');
   }, []);
+
+  useEffect(() => {
+    storage.set('kidsMode', { enabled: kidsModeEnabled, ageRange: kidsAgeRange });
+  }, [kidsModeEnabled, kidsAgeRange]);
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    if (!mood || !cuisine || !budget || !timeLimit) return;
+    if (!mood || !cuisine) return;
+
+    const finalBudget = budget || String(PRESET_BUDGETS[currency][1]);
+    const finalTimeLimit = timeLimit || '30 mins';
 
     const profileDiets = selectedProfiles.flatMap((profile) => profile.diets || []);
     const allergies = selectedProfiles.map((profile) => profile.allergies).filter(Boolean).join(', ');
@@ -116,17 +130,19 @@ export default function InputScreen({ onSearch }) {
     const searchPayload = {
       mood,
       cuisine,
-      budget,
+      budget: finalBudget,
       currency,
       diets: mergedDiets,
       mealType,
       leftovers,
-      timeLimit,
+      timeLimit: finalTimeLimit,
       goalMode,
       chefStyle: chefStyleText,
       allergies,
       dailyTarget,
       mealTarget,
+      kidsMode: kidsModeEnabled,
+      kidsAgeRange: kidsModeEnabled ? kidsAgeRange : '',
       householdProfiles: selectedProfiles.map((profile) => ({
         id: profile.id,
         name: profile.name,
@@ -146,12 +162,12 @@ export default function InputScreen({ onSearch }) {
     const randomMood = MOODS[Math.floor(Math.random() * MOODS.length)].label;
     const randomCuisine = CUISINES[Math.floor(Math.random() * CUISINES.length)];
     const randomChefStyle = CHEF_STYLES[Math.floor(Math.random() * CHEF_STYLES.length)];
-    const baseBudget = weeklyBudget.total ? Math.round((weeklyBudget.total || 0) / 7) : 500;
+    const baseBudget = weeklyBudget.total ? Math.round((weeklyBudget.total || 0) / 7) : PRESET_BUDGETS[currency][1];
     const chefStyleText = randomChefStyle === 'None' ? '' : randomChefStyle;
     const searchPayload = {
       mood: randomMood,
       cuisine: randomCuisine,
-      budget: String(Math.max(baseBudget, 200)),
+      budget: String(Math.max(baseBudget, PRESET_BUDGETS[currency][0])),
       currency,
       diets: [],
       mealType: 'Dinner',
@@ -162,6 +178,8 @@ export default function InputScreen({ onSearch }) {
       allergies: '',
       dailyTarget: null,
       mealTarget: null,
+      kidsMode: kidsModeEnabled,
+      kidsAgeRange: kidsModeEnabled ? kidsAgeRange : '',
       householdProfiles: [],
     };
     storage.set('lastSearch', searchPayload);
@@ -218,7 +236,7 @@ export default function InputScreen({ onSearch }) {
 
   return (
     <div className="w-full screen-enter pb-20">
-      <div className="w-full bg-gradient-to-b from-surface-2 via-base to-surface-3 pt-14 pb-8 rounded-b-3xl shadow-sm border-b border-border-subtle">
+      <div className="w-full bg-gradient-to-b from-surface-2 via-base to-surface-3 pt-10 pb-8 rounded-b-3xl shadow-sm border-b border-border-subtle">
         <div className="container">
           <p className="text-base text-text-secondary">
             {getGreeting()}, Abdul 👋
@@ -263,7 +281,7 @@ export default function InputScreen({ onSearch }) {
 
         {/* Cuisine Selector */}
         <div>
-          <h3 className="mb-3 text-lg font-semibold text-text-primary px-4">Cuisine</h3>
+          <h3 className="mb-3 text-lg font-semibold text-text-primary">Cuisine</h3>
           <div className="cuisine-scroll">
             {CUISINES.map(c => (
               <div
@@ -272,13 +290,14 @@ export default function InputScreen({ onSearch }) {
                 className={`cuisine-pill ${cuisine === c ? 'selected' : ''}`}
               >
                 {c}
+                {seasonalCount >= 2 ? <span className="seasonal-dot" title="Seasonal picks">●</span> : null}
               </div>
             ))}
           </div>
         </div>
 
         {/* Time Limit Selector */}
-        <div className="px-4">
+        <div>
           <h3 className="mb-3 text-lg font-semibold text-text-primary">Time</h3>
           <div className="time-options">
             {TIME_LIMITS.map((t, i) => (
@@ -295,7 +314,7 @@ export default function InputScreen({ onSearch }) {
         </div>
 
         {/* Budget Input */}
-        <div className="px-4">
+        <div>
           <h3 className="mb-3 text-lg font-semibold text-text-primary">Budget</h3>
           <div className="relative">
             <div className="absolute left-4 top-1/2 -translate-y-1/2 flex items-center gap-1">
@@ -314,7 +333,7 @@ export default function InputScreen({ onSearch }) {
               type="number"
               value={budget}
               onChange={(e) => setBudget(e.target.value)}
-              placeholder="0"
+              placeholder={`e.g. ${PRESET_BUDGETS[currency][1]}`}
               className="w-full bg-surface border-2 border-border rounded-xl py-4 pl-16 pr-4 font-mono text-2xl font-bold text-text-primary outline-none focus:border-primary transition-base shadow-sm"
               required
             />
@@ -332,143 +351,37 @@ export default function InputScreen({ onSearch }) {
           </div>
         </div>
 
-        {/* Meal Type Selector (Hidden in new design, but requested to keep logic. Put it as pills) */}
-        <div className="px-4">
-          <h3 className="mb-3 text-sm font-semibold text-text-secondary uppercase tracking-widest">Meal Type</h3>
+        {/* Goal Mode Selector */}
+        <div>
+          <h3 className="mb-3 text-lg font-semibold text-text-primary">Goal</h3>
           <div className="flex flex-wrap gap-2">
-            {MEAL_TYPES.map(m => (
+            {[
+              { id: 'maintain', label: 'Maintain' },
+              { id: 'surplus', label: 'Bulk' },
+              { id: 'deficit', label: 'Diet' }
+            ].map((goal) => (
               <div
-                key={m}
-                onClick={() => setMealType(m)}
-                className={`chip ${mealType === m ? 'active' : ''}`}
+                key={goal.id}
+                onClick={() => setGoalMode(goal.id)}
+                className={`chip ${goalMode === goal.id ? 'active' : ''}`}
               >
-                {m}
+                {goal.label}
               </div>
             ))}
           </div>
         </div>
 
-        {/* Advanced Options */}
-        <div className="px-4">
-          <div className="card">
-            <h3 className="mb-4 text-lg font-semibold text-text-primary">Advanced</h3>
-
-            <div className="mb-5">
-              <label className="input-label">Goal mode</label>
-              <div className="flex flex-wrap gap-2">
-                {GOAL_MODES.map((goal) => (
-                  <button
-                    type="button"
-                    key={goal.id}
-                    onClick={() => setGoalMode(goal.id)}
-                    className={`chip ${goalMode === goal.id ? 'active' : ''}`}
-                  >
-                    {goal.label} <span className="text-xs opacity-70">{goal.hint}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="mb-5">
-              <label className="input-label">Guest Chef Mode</label>
-              <div className="flex flex-wrap gap-2">
-                {CHEF_STYLES.map((style) => (
-                  <button
-                    type="button"
-                    key={style}
-                    onClick={() => setChefStyle(style)}
-                    className={`chip ${chefStyle === style ? 'active' : ''}`}
-                  >
-                    {style}
-                  </button>
-                ))}
-                <button
-                  type="button"
-                  onClick={() => setChefStyle('Custom')}
-                  className={`chip ${chefStyle === 'Custom' ? 'active' : ''}`}
-                >
-                  Custom
-                </button>
-              </div>
-              {chefStyle === 'Custom' ? (
-                <input
-                  value={chefStyleCustom}
-                  onChange={(e) => setChefStyleCustom(e.target.value)}
-                  placeholder="e.g., Karachi street food"
-                  className="input mt-3"
-                />
-              ) : null}
-            </div>
-
-            <div className="mb-5">
-              <label className="input-label">Smart portions</label>
-              <div className="flex items-center justify-between gap-4 flex-wrap">
-                <div className="text-sm text-text-secondary">
-                  {effectiveProfile
-                    ? `${effectiveProfile.name || 'Profile'} target: ${dailyTarget || '—'} kcal/day, ~${mealTarget || '—'} kcal this meal.`
-                    : 'Set up a profile in Dashboard to calculate portions.'}
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setUseSmartPortions((value) => !value)}
-                  className={`btn btn-sm ${useSmartPortions ? 'btn-primary' : 'btn-secondary'}`}
-                >
-                  {useSmartPortions ? 'On' : 'Off'}
-                </button>
-              </div>
-            </div>
-
-            <div>
-              <label className="input-label">Household mode</label>
-              <div className="flex items-center justify-between gap-4 flex-wrap mb-3">
-                <div className="text-sm text-text-secondary">Use multiple profiles for one shared meal.</div>
-                <button
-                  type="button"
-                  onClick={() => setHouseholdMode((value) => !value)}
-                  className={`btn btn-sm ${householdMode ? 'btn-primary' : 'btn-secondary'}`}
-                >
-                  {householdMode ? 'On' : 'Off'}
-                </button>
-              </div>
-              {householdMode ? (
-                <div className="flex flex-wrap gap-2">
-                  {householdProfiles.length === 0 ? (
-                    <div className="text-sm text-text-tertiary">Add household profiles in Dashboard.</div>
-                  ) : (
-                    householdProfiles.map((profile) => (
-                      <button
-                        type="button"
-                        key={profile.id}
-                        onClick={() => {
-                          setHouseholdIds((prev) =>
-                            prev.includes(profile.id)
-                              ? prev.filter((id) => id !== profile.id)
-                              : [...prev, profile.id]
-                          );
-                        }}
-                        className={`chip ${householdIds.includes(profile.id) ? 'active' : ''}`}
-                      >
-                        {profile.name || 'Member'}
-                      </button>
-                    ))
-                  )}
-                </div>
-              ) : null}
-            </div>
-          </div>
-        </div>
-
         <button
           type="submit"
-          className="find-meal-btn"
-          disabled={!mood || !cuisine || !budget || !timeLimit}
+          className="btn btn-primary w-full mx-0"
+          disabled={!mood || !cuisine}
         >
           Find My Meal
         </button>
         <button
           type="button"
           onClick={handleSurprise}
-          className="btn btn-secondary w-full mx-4"
+          className="btn btn-secondary w-full mx-0"
         >
           ✨ Surprise Me
         </button>

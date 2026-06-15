@@ -7,15 +7,13 @@ import HistoryScreen from './components/HistoryScreen';
 import ProfileScreen from './components/ProfileScreen';
 import VotingScreen from './components/VotingScreen';
 import PlannerScreen from './components/PlannerScreen';
-import CuisineExplorerScreen from './components/CuisineExplorerScreen';
-import UpgradeModal from './components/UpgradeModal';
-import DemoScreen from './components/DemoScreen';
-import { checkUsageLimit, incrementUsage, getPricing } from './services/freemium';
-import { clearImageSession, logMoodSearch } from './services/foodybud';
+import SmartCartModal from './components/SmartCartModal';
+import { logMoodSearch, clearImageSession } from './services/foodybud';
+import { getCartCount } from './services/groceryCart';
 
 function AppContent() {
-  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
-  const [pricing, setPricing] = useState({ price: '$4.99', currency: 'USD', period: 'month' });
+  const [showCart, setShowCart] = useState(false);
+  const [cartCount, setCartCount] = useState(0);
   const [theme, setTheme] = useState(() => {
     if (typeof window === 'undefined') return 'light';
     const savedTheme = window.localStorage.getItem('foodyBud_theme');
@@ -24,10 +22,6 @@ function AppContent() {
   });
   const navigate = useNavigate();
   const location = useLocation();
-
-  useEffect(() => {
-    getPricing().then(setPricing);
-  }, []);
 
   useEffect(() => {
     if (typeof document === 'undefined') return;
@@ -42,13 +36,14 @@ function AppContent() {
     }
   }, [location.pathname]);
 
+  useEffect(() => {
+    const updateCart = () => setCartCount(getCartCount());
+    updateCart();
+    window.addEventListener('foodybud-cart-update', updateCart);
+    return () => window.removeEventListener('foodybud-cart-update', updateCart);
+  }, []);
+
   const handleSearch = (searchParams) => {
-    const usage = checkUsageLimit();
-    if (usage.count >= 3) {
-      setShowUpgradeModal(true);
-      return false;
-    }
-    incrementUsage();
     logMoodSearch({ mood: searchParams?.mood, cuisine: searchParams?.cuisine });
     return true; // Proceed with search
   };
@@ -57,7 +52,6 @@ function AppContent() {
     { path: '/', label: 'Home', icon: '⌂' },
     { path: '/search', label: 'Search', icon: '◎' },
     { path: '/planner', label: 'Planner', icon: '▦' },
-    { path: '/profile', label: 'Dashboard', icon: '◌' },
   ];
 
   return (
@@ -122,6 +116,18 @@ function AppContent() {
               <button onClick={() => navigate('/profile')} className="btn btn-secondary btn-sm hidden sm:inline-flex">
                 Dashboard
               </button>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm relative"
+                onClick={() => setShowCart(true)}
+              >
+                🛒 Cart
+                {cartCount > 0 ? (
+                  <span className="absolute -top-2 -right-2 bg-success text-text-inverse text-xs rounded-full px-2 py-0.5">
+                    {cartCount}
+                  </span>
+                ) : null}
+              </button>
             </div>
           </div>
         </div>
@@ -138,8 +144,6 @@ function AppContent() {
           <Route path="/history" element={<HistoryScreen />} />
           <Route path="/profile" element={<ProfileScreen />} />
           <Route path="/planner" element={<PlannerScreen />} />
-          <Route path="/explore" element={<CuisineExplorerScreen />} />
-          <Route path="/demo" element={<DemoScreen />} />
         </Routes>
       </main>
 
@@ -160,8 +164,8 @@ function AppContent() {
         })}
       </nav>
 
-      {showUpgradeModal ? (
-        <UpgradeModal pricing={pricing} onClose={() => setShowUpgradeModal(false)} />
+      {showCart ? (
+        <SmartCartModal onClose={() => setShowCart(false)} />
       ) : null}
     </div>
   );

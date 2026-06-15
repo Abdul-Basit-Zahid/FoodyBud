@@ -1,6 +1,8 @@
 import React, { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Plus, Send } from 'lucide-react';
+import GroceryPriceTracker from './GroceryPriceTracker';
+import { addToCart } from '../services/groceryCart';
 import {
   addMealToPlan,
   getGroceryChecklist,
@@ -13,7 +15,7 @@ import {
 
 const DAY_KEYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
-const categorizeIngredient = (item) => {
+export const categorizeIngredient = (item) => {
   const text = item.toLowerCase();
   if (/(onion|tomato|potato|garlic|ginger|pepper|lettuce|spinach|cucumber|carrot|lemon|lime|herb|coriander|cilantro|mint)/.test(text)) return 'Produce';
   if (/(milk|cheese|yogurt|butter|cream|ghee)/.test(text)) return 'Dairy';
@@ -30,6 +32,9 @@ export default function PlannerScreen() {
   const [mealName, setMealName] = useState('');
   const [mealCuisine, setMealCuisine] = useState('');
   const [mealIngredients, setMealIngredients] = useState('');
+  const [trackerIngredient, setTrackerIngredient] = useState('');
+  const [showTracker, setShowTracker] = useState(false);
+  const [cartNotice, setCartNotice] = useState('');
 
   const weekStartDate = useMemo(() => {
     const monday = getMonday(new Date());
@@ -94,6 +99,19 @@ export default function PlannerScreen() {
     });
     const text = lines.join('\n').trim();
     window.open(`https://wa.me/?text=${encodeURIComponent(`FoodyBud Grocery List\n\n${text}`)}`, '_blank', 'noopener,noreferrer');
+  };
+
+  const handleAddAllToCart = async () => {
+    const allItems = Object.values(groceryList).flat();
+    if (!allItems.length) return;
+    await addToCart(allItems, 'Weekly Plan', 1);
+    setCartNotice('Added to Smart Cart.');
+    setTimeout(() => setCartNotice(''), 2000);
+  };
+
+  const openTracker = (ingredient = '') => {
+    setTrackerIngredient(ingredient);
+    setShowTracker(true);
   };
 
   return (
@@ -196,10 +214,15 @@ export default function PlannerScreen() {
             <h2 className="text-xl font-black font-display">Grocery List</h2>
             <p className="text-sm text-text-secondary">Auto-generated from your plan.</p>
           </div>
-          <button onClick={handleShareList} className="btn btn-secondary btn-sm flex items-center gap-2">
+          <div className="flex items-center gap-2">
+            <button onClick={() => openTracker()} className="btn btn-ghost btn-sm">Price Tracker</button>
+            <button onClick={handleAddAllToCart} className="btn btn-secondary btn-sm">Add all to Cart</button>
+            <button onClick={handleShareList} className="btn btn-secondary btn-sm flex items-center gap-2">
             <Send className="w-4 h-4" /> Share on WhatsApp
-          </button>
+            </button>
+          </div>
         </div>
+        {cartNotice ? <div className="text-xs text-text-tertiary mb-3">{cartNotice}</div> : null}
 
         {Object.keys(groceryList).length === 0 ? (
           <div className="text-sm text-text-tertiary">Add meals with ingredients to build a list.</div>
@@ -210,14 +233,27 @@ export default function PlannerScreen() {
                 <div className="text-xs uppercase tracking-[0.2em] text-text-tertiary font-bold mb-2">{category}</div>
                 <div className="grid sm:grid-cols-2 gap-2">
                   {items.map((item, index) => (
-                    <button
+                    <div
                       key={`${category}-${index}`}
-                      onClick={() => toggleChecklistItem(item)}
                       className={`pantry-item ${checklist[item] ? 'pantry-item-checked' : ''}`}
                     >
-                      <span>{checklist[item] ? '✓' : '○'}</span>
-                      <span>{item}</span>
-                    </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleChecklistItem(item);
+                        }}
+                        className="text-left"
+                      >
+                        {checklist[item] ? '✓' : '○'}
+                      </button>
+                      <button
+                        onClick={() => openTracker(item)}
+                        className="flex-1 text-left"
+                      >
+                        {item}
+                      </button>
+                      <button onClick={() => openTracker(item)} className="btn btn-ghost btn-sm">🏷️</button>
+                    </div>
                   ))}
                 </div>
               </div>
@@ -225,6 +261,12 @@ export default function PlannerScreen() {
           </div>
         )}
       </div>
+      {showTracker ? (
+        <GroceryPriceTracker
+          initialIngredient={trackerIngredient}
+          onClose={() => setShowTracker(false)}
+        />
+      ) : null}
     </div>
   );
 }

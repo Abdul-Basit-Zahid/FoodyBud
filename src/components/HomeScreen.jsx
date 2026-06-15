@@ -28,22 +28,10 @@ export default function HomeScreen() {
 
   const secondaryCards = [
     {
-      title: 'Cuisine Explorer',
-      description: 'Unlock new cuisines with Chef Mode.',
-      action: () => navigate('/explore'),
-      icon: <Compass className="w-4 h-4 text-text-tertiary" />,
-    },
-    {
       title: 'Meal History',
       description: 'Revisit what you cooked and loved.',
       action: () => navigate('/history'),
       icon: <Home className="w-4 h-4 text-text-tertiary" />,
-    },
-    {
-      title: 'Feature Lab',
-      description: 'Try new experimental modules.',
-      action: () => navigate('/demo'),
-      icon: <Sparkles className="w-4 h-4 text-text-tertiary" />,
     },
   ];
 
@@ -59,21 +47,24 @@ export default function HomeScreen() {
         <div className="flex items-center justify-between gap-3">
           <h2 className="text-xl font-display font-black text-text-primary">Start Here</h2>
         </div>
-        <div className="grid gap-4 md:grid-cols-3">
+        <div className="flex flex-col gap-3">
           {primaryCards.map((card) => (
             <button
               key={card.title}
               type="button"
               onClick={card.action}
-              className="text-left bg-surface-2 border border-border-subtle rounded-2xl p-4 hover:shadow-card-hover transition-base"
+              className="flex items-center gap-4 bg-surface-2 border border-border-subtle rounded-2xl p-4 hover:shadow-card-hover transition-base w-full text-left"
             >
-              <div className="flex items-center gap-2 text-xs uppercase tracking-[0.2em] text-text-tertiary font-bold">
+              <div className="flex-shrink-0 w-12 h-12 flex items-center justify-center rounded-full bg-surface shadow-sm">
                 {card.icon}
-                Primary
               </div>
-              <h3 className="text-lg font-display font-bold text-text-primary mt-3">{card.title}</h3>
-              <p className="text-sm text-text-secondary mt-2">{card.description}</p>
-              <span className="text-xs font-semibold text-text-brand mt-3 inline-block">Open →</span>
+              <div className="flex-1">
+                <h3 className="text-base font-bold text-text-primary">{card.title}</h3>
+                <p className="text-sm text-text-secondary mt-0.5">{card.description}</p>
+              </div>
+              <div className="flex-shrink-0 text-text-tertiary">
+                →
+              </div>
             </button>
           ))}
         </div>
@@ -83,21 +74,24 @@ export default function HomeScreen() {
         <div className="flex items-center justify-between gap-3">
           <h2 className="text-xl font-display font-black text-text-primary">More</h2>
         </div>
-        <div className="grid gap-4 md:grid-cols-3">
+        <div className="flex flex-col gap-3">
           {secondaryCards.map((card) => (
             <button
               key={card.title}
               type="button"
               onClick={card.action}
-              className="text-left bg-surface border border-border-subtle rounded-2xl p-4 hover:shadow-card-hover transition-base"
+              className="flex items-center gap-4 bg-surface-2 border border-border-subtle rounded-2xl p-4 hover:shadow-card-hover transition-base w-full text-left"
             >
-              <div className="flex items-center gap-2 text-xs uppercase tracking-[0.2em] text-text-tertiary font-bold">
+              <div className="flex-shrink-0 w-12 h-12 flex items-center justify-center rounded-full bg-surface shadow-sm">
                 {card.icon}
-                Secondary
               </div>
-              <h3 className="text-lg font-display font-bold text-text-primary mt-3">{card.title}</h3>
-              <p className="text-sm text-text-secondary mt-2">{card.description}</p>
-              <span className="text-xs font-semibold text-text-brand mt-3 inline-block">Open →</span>
+              <div className="flex-1">
+                <h3 className="text-base font-bold text-text-primary">{card.title}</h3>
+                <p className="text-sm text-text-secondary mt-0.5">{card.description}</p>
+              </div>
+              <div className="flex-shrink-0 text-text-tertiary">
+                →
+              </div>
             </button>
           ))}
         </div>

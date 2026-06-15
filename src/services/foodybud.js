@@ -1,4 +1,5 @@
 const STORAGE_PREFIX = 'foodyBud_';
+const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY ?? '';
 
 const MOOD_HISTORY_KEY = 'moodHistory';
 const PANTRY_KEY = 'pantryItems';
@@ -240,28 +241,30 @@ export const clearImageSession = () => {
 
 export const getImageSession = () => storage.get('imageSession', { usedSeeds: [] });
 
-export const getUniqueImage = (query, seed) => {
-  const session = getImageSession();
-  let finalSeed = seed;
-  while (session.usedSeeds.includes(finalSeed)) {
-    finalSeed += 1;
-  }
-  session.usedSeeds.push(finalSeed);
-  storage.set('imageSession', session);
-  return `https://source.unsplash.com/600x400/?${encodeURIComponent(query)}&sig=${finalSeed}`;
+export const getDishImage = (dishName, cuisine, seedOffset = 0) => {
+  const seed = [...`${dishName}${seedOffset}`].reduce((acc, char) => acc + char.charCodeAt(0), 0);
+  const prompt = encodeURIComponent(
+    `professional food photography of ${dishName}, ${cuisine} cuisine, beautifully plated on a clean white plate, restaurant quality, soft natural lighting, top-down view, no text, no watermark, ultra realistic`
+  );
+  return `https://image.pollinations.ai/prompt/${prompt}?width=800&height=600&seed=${seed}&nologo=true&enhance=true`;
 };
 
-export const getDishImage = (dishName, cuisine) => {
-  const query = `${dishName} ${cuisine} food`;
-  const seed = [...`${dishName}`].reduce((acc, char) => acc + char.charCodeAt(0), 0);
-  return getUniqueImage(query, seed);
+/**
+ * AI-generated dish image via Pollinations.ai.
+ * Returns a URL that resolves to an AI-generated food photo matching the dish name.
+ * Free, no API key, deterministic per dish name.
+ */
+export const fetchDishImage = async (dishName, cuisine, seedOffset = 0) => {
+  return getDishImage(dishName, cuisine, seedOffset);
 };
+
 
 export const getRestaurantImage = (restaurantName, cuisine) => {
-  const query = `${cuisine} restaurant interior food`;
   const seed = [...`${restaurantName}`].reduce((acc, char) => acc + char.charCodeAt(0), 0);
-  return getUniqueImage(query, seed);
+  const keywords = encodeURIComponent(`${cuisine},restaurant,food`);
+  return `https://loremflickr.com/800/600/${keywords}?lock=${seed}`;
 };
+
 
 export const getWeeklyBudget = () => {
   const currentMonday = getMonday(new Date()).toISOString();
@@ -562,17 +565,27 @@ export const openDB = (name, version) => new Promise((resolve, reject) => {
   request.onerror = () => reject(request.error);
 });
 
-export const callGemini = async (prompt) => {
-  const url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=AIzaSyBnvNm-F1vnM1BRANzV_HxLxqN3uilvalE';
-  const response = await fetch(url, {
+export const callDeepSeek = async (prompt) => {
+  if (!DEEPSEEK_API_KEY) throw new Error('Missing DEEPSEEK_API_KEY');
+
+  const response = await fetch('https://api.deepseek.com/v1/chat/completions', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${DEEPSEEK_API_KEY}`
+    },
     body: JSON.stringify({
-      contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: { responseMimeType: 'application/json' },
-    }),
+      model: 'deepseek-chat',
+      messages: [
+        { role: 'system', content: 'You are a precise JSON API. Return only valid JSON with no extra text.' },
+        { role: 'user', content: prompt }
+      ],
+      temperature: 0.6
+    })
   });
-  if (!response.ok) throw new Error('Gemini request failed');
+
+  if (!response.ok) throw new Error('DeepSeek request failed');
   const data = await response.json();
-  return JSON.parse(data.candidates[0].content.parts[0].text);
+  const text = data?.choices?.[0]?.message?.content || '';
+  return JSON.parse(text);
 };

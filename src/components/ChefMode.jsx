@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { callGemini, deriveFlavorTags, getDishRatings, logMealToNutrition, logMealToWeek, markCuisineTried, saveDishRating, storage, updateStreak } from '../services/foodybud';
+import { callDeepSeek, deriveFlavorTags, getDishImage, getDishRatings, logMealToNutrition, logMealToWeek, markCuisineTried, saveDishRating, storage, updateStreak } from '../services/foodybud';
 
 export default function ChefMode({ recipe, profileIds = [], onClose }) {
   const [phase, setPhase] = useState('intro');
@@ -15,6 +15,16 @@ export default function ChefMode({ recipe, profileIds = [], onClose }) {
   const [substitutionLoading, setSubstitutionLoading] = useState(false);
   const [substitutions, setSubstitutions] = useState(() => storage.get(`substitutions_${recipe.dishName}`, {}));
   const [ownedIngredients, setOwnedIngredients] = useState(() => storage.get(`owned_${recipe.dishName}`, {}));
+  const [shareToFeed, setShareToFeed] = useState(false);
+  const [shareCaption, setShareCaption] = useState('');
+  const [shareMood, setShareMood] = useState('😊');
+  const [shareNotice, setShareNotice] = useState('');
+  const [handsFree, setHandsFree] = useState(() => storage.get('chefModeHandsFree', false));
+  const [listening, setListening] = useState(false);
+  const [lastCommand, setLastCommand] = useState('');
+  const [voiceNotice, setVoiceNotice] = useState('');
+  const [showVoiceHelp, setShowVoiceHelp] = useState(false);
+  const recognitionRef = useRef(null);
   const [rating, setRating] = useState(() => {
     const existing = getDishRatings().find((item) => item.name === recipe.dishName);
     return existing?.rating || 0;
@@ -97,6 +107,12 @@ export default function ChefMode({ recipe, profileIds = [], onClose }) {
     return 'This step sets the texture and timing so the final dish stays balanced and easy to cook.';
   };
 
+  const isKidHelperStep = (text) => /(mix|pour|sprinkle|arrange|decorate)/i.test(text || '');
+
+  useEffect(() => {
+    storage.set('chefModeHandsFree', handsFree);
+  }, [handsFree]);
+
   const speak = (stepText, tipText) => {
     if (!window.speechSynthesis) return;
     window.speechSynthesis.cancel();
@@ -117,6 +133,113 @@ export default function ChefMode({ recipe, profileIds = [], onClose }) {
       }
     };
     window.speechSynthesis.speak(utterance);
+  };
+
+  const getSpeechRecognition = () => {
+    return window.SpeechRecognition || window.webkitSpeechRecognition || null;
+  };
+
+  const stopListening = () => {
+    if (recognitionRef.current) {
+      recognitionRef.current.onresult = null;
+      recognitionRef.current.onerror = null;
+      recognitionRef.current.onend = null;
+      recognitionRef.current.stop();
+    }
+    setListening(false);
+  };
+
+  const startListening = () => {
+    if (!handsFree || substitutionTarget || phase !== 'cooking') return;
+    const SpeechRecognition = getSpeechRecognition();
+    if (!SpeechRecognition) {
+      setVoiceNotice('Voice commands not supported in this browser — try Chrome');
+      return;
+    }
+
+    if (!recognitionRef.current) {
+      recognitionRef.current = new SpeechRecognition();
+      recognitionRef.current.continuous = true;
+      recognitionRef.current.interimResults = false;
+      recognitionRef.current.lang = 'en-US';
+    }
+
+    recognitionRef.current.onresult = (event) => {
+      const transcript = event.results[event.results.length - 1][0].transcript || '';
+      handleVoiceCommand(transcript);
+    };
+
+    recognitionRef.current.onerror = (event) => {
+      if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+        setVoiceNotice('Microphone permission denied. Allow mic access to use voice commands.');
+      }
+      setListening(false);
+    };
+
+    recognitionRef.current.onend = () => {
+      if (handsFree && !substitutionTarget) {
+        setTimeout(startListening, 500);
+      }
+    };
+
+    try {
+      recognitionRef.current.start();
+      setListening(true);
+    } catch {
+      // ignore repeated start errors
+    }
+  };
+
+  const handleVoiceCommand = (rawText) => {
+    let text = String(rawText || '').toLowerCase().trim();
+    if (!text) return;
+
+    if (text.startsWith('hey foodybud')) {
+      text = text.replace('hey foodybud', '').trim();
+    } else if (text.startsWith('hey foody')) {
+      text = text.replace('hey foody', '').trim();
+    }
+
+    setLastCommand(text);
+
+    if (/^(next|done|mark done)/.test(text)) {
+      markDoneAndNext();
+      return;
+    }
+    if (/^(previous|go back)/.test(text)) {
+      setCurrentIndex((index) => Math.max(0, index - 1));
+      return;
+    }
+    if (/^(repeat|say again)/.test(text)) {
+      speak(currentStep.instruction || '', currentStep.tip || null);
+      return;
+    }
+    if (/^(start timer|begin timer)/.test(text)) {
+      setTimers((prev) => {
+        const next = [...prev];
+        const target = next.findIndex((timer) => !timer.running && timer.remaining > 0);
+        if (target >= 0) next[target] = { ...next[target], running: true };
+        return next;
+      });
+      return;
+    }
+    if (/^(stop timer|pause timer)/.test(text)) {
+      setTimers((prev) => prev.map((timer) => (timer.running ? { ...timer, running: false } : timer)));
+      return;
+    }
+    if (/^(how long|time remaining)/.test(text)) {
+      const running = timers.find((timer) => timer.running) || timers[0];
+      if (running) {
+        const mins = Math.floor(running.remaining / 60);
+        const secs = running.remaining % 60;
+        speak(`Time remaining: ${mins} minutes and ${secs} seconds.`, null);
+      }
+      return;
+    }
+    if (/^(ingredients|what do i need)/.test(text)) {
+      const list = (currentStep.stepIngredients || []).join(', ');
+      speak(list ? `You need: ${list}.` : 'No specific ingredients for this step.', null);
+    }
   };
 
   const playBell = () => {
@@ -185,7 +308,7 @@ Respond ONLY in JSON:
 
 All substitutes must be strictly Halal. Prefer common pantry items.
 `;
-      const payload = await callGemini(prompt);
+      const payload = await callDeepSeek(prompt);
       const substitutes = payload?.substitutes || [
         { substitute: '1 cup yogurt + 1 tsp lemon juice', ratio: '1:1', effect: 'slightly tangier and lighter', confidence: 'Good', tip: 'Whisk before adding.' },
         { substitute: '2 tbsp cream + 1 tbsp water', ratio: '1:1', effect: 'richer and softer', confidence: 'Acceptable', tip: 'Add slowly to avoid splitting.' },
@@ -220,6 +343,12 @@ All substitutes must be strictly Halal. Prefer common pantry items.
 
   useEffect(() => {
     initTimers(currentStep);
+    if (handsFree && !substitutionTarget && phase === 'cooking') {
+      setTimeout(() => {
+        speak(currentStep.instruction || '', currentStep.tip || null);
+        startListening();
+      }, 600);
+    }
   }, [currentIndex]);
 
   useEffect(() => {
@@ -235,9 +364,32 @@ All substitutes must be strictly Halal. Prefer common pantry items.
         setTimers((prev) => prev.map((item, timerIndex) => (timerIndex === idx ? { ...item, running: false } : item)));
         notifyTimerDone();
         if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
+        if (handsFree) {
+          speak('Timer done. This step is complete. Say next when ready.', null);
+        }
       }
     });
   }, [timers]);
+
+  useEffect(() => {
+    if (!handsFree) {
+      stopListening();
+      return;
+    }
+    if (substitutionTarget) {
+      stopListening();
+      return;
+    }
+    startListening();
+  }, [handsFree, substitutionTarget]);
+
+  useEffect(() => {
+    if (phase !== 'cooking') stopListening();
+  }, [phase]);
+
+  useEffect(() => {
+    return () => stopListening();
+  }, []);
 
   useEffect(() => {
     if (phase === 'cooking' && !startTimeRef.current) {
@@ -326,6 +478,7 @@ All substitutes must be strictly Halal. Prefer common pantry items.
           <div className="text-6xl">🎉</div>
           <h2 className="mt-6 text-3xl font-black font-display">Your {recipe.dishName} is ready!</h2>
           <p className="mt-4 text-text-secondary">Cooked in: {elapsedMins()} mins · Calories: {recipe.totalCalories || recipe.macros?.calories || '—'}</p>
+
           <div className="mt-6">
             <div className="text-sm uppercase tracking-[0.2em] text-text-tertiary font-bold">Rate this meal</div>
             <div className="flex items-center justify-center gap-2 mt-3">
@@ -357,16 +510,10 @@ All substitutes must be strictly Halal. Prefer common pantry items.
   return createPortal(
     <div className="fixed inset-0 z-[150] bg-base text-text-primary overflow-auto">
       <div className="max-w-6xl mx-auto px-4 py-4 md:px-6 md:py-6">
-        <div className="flex items-center justify-between gap-3 border-b border-border-subtle pb-4">
-          <button onClick={() => { if (onClose) onClose(); }} className="text-sm font-bold text-text-tertiary">← Exit</button>
-          <div className="text-center flex-1">
-            <div className="font-black font-display text-lg">{recipe.dishName}</div>
-            <div className="text-xs text-text-tertiary font-bold tracking-wider uppercase">{recipe.totalTime} · {totalSteps} steps</div>
-          </div>
-          <div className="flex items-center gap-2">
-            <button onClick={() => speak(currentStep.instruction || '', currentStep.tip || null)} className="chip bg-surface border-border">🔊</button>
-            <button onClick={() => setAutoNarrate((value) => !value)} className={`chip ${autoNarrate ? 'chip-success' : 'bg-surface border-border'}`}>{autoNarrate ? 'Auto On' : 'Auto Off'}</button>
-            <button onClick={() => setClassMode((value) => !value)} className={`chip ${classMode ? 'bg-primary text-text-inverse border-primary' : 'bg-surface border-border'}`}>🎓 Class</button>
+        <div className="flex items-center gap-3 mb-6">
+          <button onClick={() => { if (onClose) onClose(); }} className="btn btn-secondary btn-sm rounded-full">← Exit</button>
+          <div className="flex-1 text-center bg-surface-2 px-4 py-2 rounded-full border border-border-subtle inline-block mx-auto max-w-fit">
+            <span className="font-bold text-sm text-text-primary">{recipe.dishName}</span>
           </div>
         </div>
 
@@ -380,24 +527,58 @@ All substitutes must be strictly Halal. Prefer common pantry items.
           </div>
         </div>
 
+        {recipe.kidsMode ? (
+          <div className="mt-4 card bg-surface-2">
+            <div className="text-sm uppercase tracking-[0.2em] text-text-tertiary font-bold">Can you find these in the kitchen?</div>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {(recipe.groceryList || recipe.ingredients || []).slice(0, 8).map((item, index) => (
+                <span key={index} className="chip">🧺 {item}</span>
+              ))}
+              {!(recipe.groceryList || recipe.ingredients || []).length ? (
+                <span className="text-sm text-text-tertiary">No ingredients listed yet.</span>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
+
+        {voiceNotice ? (
+          <div className="mt-4 text-xs text-warning">{voiceNotice}</div>
+        ) : null}
+
         <div className="mt-6 grid lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2 card bg-surface relative overflow-hidden">
             <div className="absolute right-4 top-2 text-[120px] opacity-[0.03] font-black leading-none">{String(currentIndex + 1).padStart(2, '0')}</div>
             <div className="relative z-10">
-              <div className="text-sm uppercase tracking-[0.25em] text-text-tertiary font-bold mb-3">Step {currentIndex + 1}</div>
-              <div className="flex items-start gap-3">
-                <div className="text-3xl">{getStepIcon(currentStep.instruction || '')}</div>
-                <h3 className="text-2xl md:text-3xl leading-tight font-display font-black text-text-primary">{currentStep.instruction}</h3>
+              <div className="text-xs uppercase tracking-[0.25em] text-text-tertiary font-bold mb-2">Step {currentIndex + 1}</div>
+              <div className="flex items-start gap-2">
+                <div className="text-2xl flex-shrink-0">{getStepIcon(currentStep.instruction || '')}</div>
+                <p className="text-base md:text-lg leading-snug font-semibold text-text-primary">{currentStep.instruction}</p>
               </div>
 
-              <div className="mt-6 space-y-3">
+              {handsFree ? (
+                <div className="mt-3 flex items-center gap-2 text-xs text-success">
+                  <span className={`listening-pill ${listening ? 'active' : ''}`}>
+                    <span className="listening-dot"></span>
+                    {listening ? 'Listening' : 'Paused'}
+                  </span>
+                  {lastCommand ? <span className="text-text-tertiary">Heard: {lastCommand}</span> : null}
+                </div>
+              ) : null}
+
+              {recipe.kidsMode && isKidHelperStep(currentStep.instruction) ? (
+                <div className="mt-3 p-3 rounded-2xl bg-success-light border-success text-success text-sm font-semibold">
+                  🧒 Kids can help with this step!
+                </div>
+              ) : null}
+
+              <div className="mt-4 space-y-2">
                 {timers.length === 0 && <div className="text-sm text-text-tertiary font-medium">No timer needed for this step.</div>}
                 {timers.map((timer, timerIndex) => (
                   <div key={timerIndex} className="bg-surface-2 rounded-2xl p-4 border border-border-subtle">
                     <div className="flex items-center justify-between gap-3 flex-wrap">
                       <div>
                         <div className="text-xs uppercase tracking-[0.2em] text-text-tertiary font-bold">Timer {timerIndex + 1}</div>
-                        <div className="text-4xl font-black font-mono mt-1 text-text-brand">{Math.floor(timer.remaining / 60).toString().padStart(2, '0')}:{(timer.remaining % 60).toString().padStart(2, '0')}</div>
+                        <div className="text-3xl font-black font-mono mt-1 text-text-brand">{Math.floor(timer.remaining / 60).toString().padStart(2, '0')}:{(timer.remaining % 60).toString().padStart(2, '0')}</div>
                       </div>
                       <div className="flex gap-2 flex-wrap">
                         {!timer.running ? (
@@ -412,16 +593,36 @@ All substitutes must be strictly Halal. Prefer common pantry items.
                 ))}
               </div>
 
-              {currentStep.tip && <div className="mt-6 p-4 rounded-2xl bg-primary-light border border-primary text-sm font-medium text-text-brand">💡 {currentStep.tip}</div>}
+              {currentStep.tip && <div className="mt-3 p-3 rounded-xl bg-primary-light border border-primary text-xs font-medium text-text-brand">💡 {currentStep.tip}</div>}
 
-              <div className="mt-4 rounded-2xl border border-border-subtle overflow-hidden bg-surface-2">
-                <button onClick={() => setShowWhy((value) => !value)} className="w-full text-left px-4 py-3 font-semibold flex items-center justify-between">
-                  <span>Chef's Insight: Why do we do this?</span>
-                  <span className="text-xs text-text-tertiary">🎓 Class Mode Active</span>
+              <div className="mt-3 rounded-xl border border-border-subtle overflow-hidden bg-surface-2">
+                <button onClick={() => setShowWhy((value) => !value)} className="w-full text-left px-3 py-2 text-sm font-semibold flex items-center justify-between">
+                  <span>🎓 Why this step?</span>
+                  <span className="text-xs text-text-tertiary">{showWhy ? 'Hide' : 'Show'}</span>
                 </button>
-                <div className="px-4 pb-4">
-                  <p className="text-sm font-medium text-text-secondary">{getClassExplanation(currentStep.instruction || '')}</p>
-                </div>
+                {showWhy && (
+                  <div className="px-3 pb-3">
+                    <p className="text-xs font-medium text-text-secondary">{currentStep.classExplanation || getClassExplanation(currentStep.instruction || '')}</p>
+                  </div>
+                )}
+              </div>
+
+              <div className="mt-2 rounded-xl border border-border-subtle overflow-hidden bg-surface-2">
+                <button onClick={() => setShowVoiceHelp((value) => !value)} className="w-full text-left px-3 py-2 text-sm font-semibold flex items-center justify-between">
+                  <span>🎤 Voice commands</span>
+                  <span className="text-xs text-text-tertiary">{showVoiceHelp ? 'Hide' : 'Show'}</span>
+                </button>
+                {showVoiceHelp ? (
+                  <div className="px-4 pb-4 text-sm text-text-secondary space-y-1">
+                    <div>“Next” / “Done” / “Mark done”</div>
+                    <div>“Previous” / “Go back”</div>
+                    <div>“Repeat” / “Say again”</div>
+                    <div>“Start timer” / “Begin timer”</div>
+                    <div>“Stop timer” / “Pause timer”</div>
+                    <div>“How long” / “Time remaining”</div>
+                    <div>“Ingredients” / “What do I need”</div>
+                  </div>
+                ) : null}
               </div>
             </div>
           </div>
@@ -460,8 +661,9 @@ All substitutes must be strictly Halal. Prefer common pantry items.
               <div className="font-bold text-text-primary mb-3 font-display">Coming up</div>
               <div className="space-y-3 text-sm text-text-secondary font-medium">
                 {steps.slice(currentIndex + 1, currentIndex + 3).map((step, index) => (
-                  <div key={index} className="opacity-70 bg-surface-2 border border-border-subtle p-3 rounded-2xl">
-                    <span className="font-bold">Step {currentIndex + 2 + index}</span> · {step.instruction}
+                  <div key={index} className="opacity-70 bg-surface-2 border border-border-subtle px-3 py-2 rounded-xl">
+                    <span className="font-bold text-xs">Step {currentIndex + 2 + index}</span>
+                    <p className="text-xs mt-0.5 line-clamp-2">{step.instruction}</p>
                   </div>
                 ))}
                 {currentIndex >= totalSteps - 1 && <div className="text-text-tertiary italic">No more steps</div>}
