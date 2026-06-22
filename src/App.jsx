@@ -8,18 +8,39 @@ import ProfileScreen from './components/ProfileScreen';
 import VotingScreen from './components/VotingScreen';
 import PlannerScreen from './components/PlannerScreen';
 import SmartCartModal from './components/SmartCartModal';
+import NutritionistChat from './components/NutritionistChat';
+import UpgradeModal from './components/UpgradeModal';
 import { logMoodSearch, clearImageSession } from './services/foodybud';
 import { getCartCount } from './services/groceryCart';
+import { getMockUserState } from './services/freemium';
+import { ShieldCheck } from 'lucide-react';
+
+function DietitianPage() {
+  return (
+    <div className="container py-8 screen-enter pb-24">
+      <div className="mb-6">
+        <p className="text-xs uppercase tracking-[0.3em] text-text-secondary">AI Consultant</p>
+        <h1 className="text-3xl font-black font-display">Halal Fiqh & Dietitian AI</h1>
+        <p className="text-sm text-text-secondary mt-1">Screen E-numbers, Mushbooh ingredients, and animal rennet in real-time.</p>
+      </div>
+      <NutritionistChat recipe={{ name: 'General Halal Diet', cuisine: 'Global' }} standalone={true} />
+    </div>
+  );
+}
 
 function AppContent() {
   const [showCart, setShowCart] = useState(false);
   const [cartCount, setCartCount] = useState(0);
+  const [showUpgradeNav, setShowUpgradeNav] = useState(false);
+  const [userState, setUserState] = useState(getMockUserState());
+  
   const [theme, setTheme] = useState(() => {
     if (typeof window === 'undefined') return 'light';
     const savedTheme = window.localStorage.getItem('foodyBud_theme');
     if (savedTheme === 'light' || savedTheme === 'dark') return savedTheme;
     return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
   });
+  
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -43,15 +64,25 @@ function AppContent() {
     return () => window.removeEventListener('foodybud-cart-update', updateCart);
   }, []);
 
+  useEffect(() => {
+    const handleStateUpdate = () => {
+      setUserState(getMockUserState());
+    };
+    window.addEventListener('foodybud-user-state-update', handleStateUpdate);
+    return () => window.removeEventListener('foodybud-user-state-update', handleStateUpdate);
+  }, []);
+
   const handleSearch = (searchParams) => {
     logMoodSearch({ mood: searchParams?.mood, cuisine: searchParams?.cuisine });
-    return true; // Proceed with search
+    return true;
   };
 
   const navItems = [
-    { path: '/', label: 'Home', icon: '⌂' },
-    { path: '/search', label: 'Search', icon: '◎' },
-    { path: '/planner', label: 'Planner', icon: '▦' },
+    { path: '/profile?tab=pantry', label: 'Pantry (Free)', icon: '🧺' },
+    { path: '/planner', label: 'Meal Planner', icon: '▦' },
+    { action: () => setShowCart(true), label: 'Split-Cart', icon: '🛒' },
+    { path: '/dietitian', label: `Dietitian ${!userState.isPremium ? '🔒' : ''}`, icon: '🕌' },
+    { action: () => setShowUpgradeNav(true), label: 'Upgrade ($4.99)', icon: '⚡' },
   ];
 
   return (
@@ -70,7 +101,7 @@ function AppContent() {
               </div>
               <div>
                 <div className="font-display text-2xl font-semibold tracking-tight text-text-primary">FoodyBud</div>
-                <div className="text-xs uppercase tracking-[0.35em] text-text-tertiary">Warm. Premium. Alive.</div>
+                <div className="text-xs uppercase tracking-[0.35em] text-text-tertiary">Halal Diaspora Meal Planner</div>
               </div>
             </button>
 
@@ -107,21 +138,39 @@ function AppContent() {
                   {theme === 'dark' ? '🌙' : '☀️'}
                 </span>
               </button>
-              <button onClick={() => navigate('/search')} className="btn btn-secondary btn-sm hidden sm:inline-flex">
-                Find a Meal
+              
+              <button onClick={() => navigate('/profile?tab=pantry')} className="btn btn-secondary btn-sm hidden md:inline-flex">
+                Pantry (Free)
               </button>
-              <button onClick={() => navigate('/planner')} className="btn btn-secondary btn-sm hidden sm:inline-flex">
-                Planner
-              </button>
-              <button onClick={() => navigate('/profile')} className="btn btn-secondary btn-sm hidden sm:inline-flex">
-                Dashboard
+              <button onClick={() => navigate('/planner')} className="btn btn-secondary btn-sm hidden md:inline-flex">
+                Meal Planner
               </button>
               <button
                 type="button"
-                className="btn btn-secondary btn-sm relative"
+                className="btn btn-secondary btn-sm relative hidden md:inline-flex"
                 onClick={() => setShowCart(true)}
               >
-                🛒 Cart
+                🛒 Split-Cart
+                {cartCount > 0 ? (
+                  <span className="absolute -top-2 -right-2 bg-success text-text-inverse text-xs rounded-full px-2 py-0.5">
+                    {cartCount}
+                  </span>
+                ) : null}
+              </button>
+              <button onClick={() => navigate('/dietitian')} className="btn btn-secondary btn-sm hidden md:inline-flex gap-1 items-center">
+                Halal Dietitian {!userState.isPremium ? '🔒' : ''}
+              </button>
+              <button onClick={() => setShowUpgradeNav(true)} className="btn btn-primary btn-sm hidden md:inline-flex gap-1 items-center">
+                ⚡ Upgrade ($4.99)
+              </button>
+              
+              {/* Mobile cart trigger indicator */}
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm md:hidden relative"
+                onClick={() => setShowCart(true)}
+              >
+                🛒
                 {cartCount > 0 ? (
                   <span className="absolute -top-2 -right-2 bg-success text-text-inverse text-xs rounded-full px-2 py-0.5">
                     {cartCount}
@@ -144,18 +193,22 @@ function AppContent() {
           <Route path="/history" element={<HistoryScreen />} />
           <Route path="/profile" element={<ProfileScreen />} />
           <Route path="/planner" element={<PlannerScreen />} />
+          <Route path="/dietitian" element={<DietitianPage />} />
         </Routes>
       </main>
 
-      <nav className="bottom-nav md:hidden">
+      <nav className="bottom-nav">
         {navItems.map((item) => {
-          const active = item.path === '/' ? location.pathname === '/' : location.pathname.startsWith(item.path);
+          const active = item.path ? (item.path === '/' ? location.pathname === '/' : location.pathname.startsWith(item.path.split('?')[0])) : false;
           return (
             <button
-              key={item.path}
+              key={item.label}
               type="button"
               className={`nav-item ${active ? 'active' : ''}`}
-              onClick={() => navigate(item.path)}
+              onClick={() => {
+                if (item.action) item.action();
+                else navigate(item.path);
+              }}
             >
               <span className="nav-icon">{item.icon}</span>
               <span className="nav-label">{item.label}</span>
@@ -166,6 +219,10 @@ function AppContent() {
 
       {showCart ? (
         <SmartCartModal onClose={() => setShowCart(false)} />
+      ) : null}
+
+      {showUpgradeNav ? (
+        <UpgradeModal onClose={() => setShowUpgradeNav(false)} />
       ) : null}
     </div>
   );

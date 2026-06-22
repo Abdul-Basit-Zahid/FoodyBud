@@ -325,7 +325,7 @@ export const askNutritionist = async (messages = [], recipeContext = {}) => {
     ? `${recipeContext.macros.calories || '—'} kcal, ${recipeContext.macros.protein || '—'} protein, ${recipeContext.macros.carbs || '—'} carbs, ${recipeContext.macros.fats || '—'} fats`
     : 'unknown';
 
-  const systemPrompt = `You are a registered nutritionist AI assistant embedded in FoodyBud, a Halal meal planning app used by Muslim diaspora worldwide. The user is asking about: ${recipeName}, ${cuisine}, Macros: ${macros}. Answer concisely (2-4 sentences). Always consider Halal dietary requirements. If asked about substitutions, suggest only Halal options.`;
+  const systemPrompt = `You are a strict Halal dietary consultant and AI Fiqh expert embedded in FoodyBud. You are an expert in Western grocery store E-numbers, hidden animal rennet in cheeses, and Mushbooh ingredient verification. The user is asking about: ${recipeName}, ${cuisine}, Macros: ${macros}. Answer concisely (2-4 sentences) with high authority and precise Halal guidance.`;
 
   const response = await fetch(DEEPSEEK_API_URL, {
     method: 'POST',
@@ -348,7 +348,8 @@ export const askNutritionist = async (messages = [], recipeContext = {}) => {
   }
 
   const data = await response.json();
-  return data?.choices?.[0]?.message?.content || '';
+  const content = data?.choices?.[0]?.message?.content || '';
+  return content + "\n\n*Disclaimer: AI ingredient screening relies on automated text analysis. Formulations change by region; always verify physical packaging for certified Halal seals.*";
 };
 
 const callDeepSeekJson = async (prompt, systemAddon = '', options = {}) => {
@@ -491,5 +492,48 @@ const extractJsonBlock = (text) => {
   }
 
   return null;
+};
+
+export const getHalalifySwap = async (ingredient, dishName = 'Western Recipe') => {
+  const prompt = `You are a Halal culinary substitution expert. 
+The user is cooking: "${dishName}" and wants to swap this haram/non-halal ingredient: "${ingredient}".
+Provide the ultimate Halal diaspora alternative(s). If it's a specific item like:
+- Wine -> suggest Grape juice or wine vinegar
+- Pork/Pancetta/Bacon -> suggest Sujuk, Smoked Turkey, beef bacon, or halal sausage
+- Gelatin -> suggest Agar Agar or halal beef gelatin
+- Alcohol-based Vanilla -> suggest Vanilla bean paste or alcohol-free vanilla extract
+
+Respond ONLY in JSON:
+{
+  "ingredient": "${ingredient}",
+  "substitutes": [
+    {
+      "name": "exact replacement",
+      "ratio": "substitution ratio (e.g. 1:1)",
+      "note": "brief culinary explanation of why it works and how it mimics the original taste/texture"
+    }
+  ]
+}`;
+
+  try {
+    const parsed = await callDeepSeekJson(prompt);
+    return parsed?.substitutes || [];
+  } catch (err) {
+    console.error('Halalify swap failed', err);
+    const lower = ingredient.toLowerCase();
+    if (lower.includes('wine') || lower.includes('alcohol') || lower.includes('beer') || lower.includes('sherry') || lower.includes('rum')) {
+      return [{ name: 'White grape juice + wine vinegar', ratio: '1:1', note: 'Mimics the acidity and fruitiness without alcohol.' }];
+    }
+    if (lower.includes('pork') || lower.includes('pancetta') || lower.includes('bacon') || lower.includes('ham') || lower.includes('prosciutto')) {
+      return [{ name: 'Sujuk / Smoked Turkey bacon', ratio: '1:1', note: 'Restores the smoky, salty, cured profile.' }];
+    }
+    if (lower.includes('gelatin')) {
+      return [{ name: 'Agar Agar', ratio: '1:1', note: 'Plant-based gelling agent that sets firmly.' }];
+    }
+    if (lower.includes('vanilla')) {
+      return [{ name: 'Vanilla bean paste', ratio: '1:1', note: 'Alcohol-free, rich aromatic vanilla seed paste.' }];
+    }
+    return [{ name: 'Halal alternative', ratio: '1:1', note: 'Clean halal-certified alternative.' }];
+  }
 };
 

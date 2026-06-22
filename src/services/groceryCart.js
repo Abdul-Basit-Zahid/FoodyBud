@@ -1,6 +1,4 @@
 import { storage } from './foodybud';
-import { getPriceTrackerData } from './priceTracker';
-
 const CART_KEY = 'smartCart';
 const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY ?? '';
 
@@ -112,25 +110,5 @@ export const markBought = (itemId) => {
 };
 
 export const getCartTotal = () => {
-  const items = getCart();
-  if (!items.length) return null;
-  const tracker = getPriceTrackerData();
-  if (!tracker?.items) return null;
-
-  let total = 0;
-  let currency = null;
-  for (const item of items) {
-    const key = normalizeItem(item.item);
-    const history = Array.isArray(tracker.items?.[key]) ? tracker.items[key] : [];
-    if (!history.length) return null;
-    const latestCurrency = history[0]?.currency || history[history.length - 1]?.currency;
-    if (!currency) currency = latestCurrency;
-    if (currency !== latestCurrency) return null;
-    const recent = history.slice(0, 10);
-    const avg = recent.reduce((sum, entry) => sum + Number(entry.price || 0), 0) / recent.length;
-    if (!Number.isFinite(avg)) return null;
-    total += avg;
-  }
-
-  return { total: Math.round(total * 100) / 100, currency };
+  return null;
 };

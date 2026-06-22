@@ -92,7 +92,14 @@ All recipes strictly Halal. Costs in PKR. Keep steps atomic and clear.
 
 export default function ProfileScreen() {
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState('dashboard');
+  const queryTab = new URLSearchParams(window.location.search).get('tab');
+  const [activeTab, setActiveTab] = useState(queryTab === 'pantry' ? 'pantry' : 'dashboard');
+
+  useEffect(() => {
+    if (queryTab === 'pantry' || queryTab === 'dashboard') {
+      setActiveTab(queryTab);
+    }
+  }, [queryTab]);
   const [budgetDraft, setBudgetDraft] = useState('');
   const [nutritionDraft, setNutritionDraft] = useState(getNutritionGoals());
   const [budget, setBudget] = useState(getWeeklyBudget());
@@ -364,7 +371,7 @@ export default function ProfileScreen() {
         </div>
         <div className="flex gap-2 flex-wrap">
           <button className="btn btn-secondary btn-sm" onClick={() => navigate('/planner')}>Planner</button>
-          <button className="btn btn-secondary btn-sm" onClick={() => navigate('/explore')}>Cuisine Explorer</button>
+          <button className="btn btn-secondary btn-sm" onClick={() => navigate('/search')}>Find a Meal</button>
         </div>
       </div>
 

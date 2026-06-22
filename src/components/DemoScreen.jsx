@@ -8,7 +8,6 @@ import MacrosChefMealPlanChef from './MacrosChefMealPlanChef';
 import NutritionStreaksGoals from './NutritionStreaksGoals';
 import PanicSwapEngine from './PanicSwapEngine';
 import RecipeRemixTracker from './RecipeRemixTracker';
-import RegionalMarketPricingEstimator from './RegionalMarketPricingEstimator';
 import ServingScalerConverter from './ServingScalerConverter';
 
 export default function DemoScreen() {
@@ -22,9 +21,6 @@ export default function DemoScreen() {
 
       <section id="home-group-voting">
         <HomeGroupVotingCanvas />
-      </section>
-      <section id="market-pricing">
-        <RegionalMarketPricingEstimator />
       </section>
       <section id="kitchen-mode">
         <KitchenModeDetailView />

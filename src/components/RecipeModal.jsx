@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import ChefMode from './ChefMode';
-import GroceryPriceTracker from './GroceryPriceTracker';
 import NutritionistChat from './NutritionistChat';
 import { detectUserRegion, isIngredientInSeason } from '../services/seasonalIngredients';
 import { addToCart } from '../services/groceryCart';
@@ -86,8 +85,6 @@ export default function RecipeModal({ recipe, currency, searchContext, onClose, 
   const [substitutionTarget, setSubstitutionTarget] = useState(null);
   const [substitutionResults, setSubstitutionResults] = useState([]);
   const [substitutionLoading, setSubstitutionLoading] = useState(false);
-  const [priceTrackerIngredient, setPriceTrackerIngredient] = useState('');
-  const [showPriceTracker, setShowPriceTracker] = useState(false);
   const [cartNotice, setCartNotice] = useState('');
   const profileIds = useMemo(() => {
     const fromContext = (searchContext?.householdProfiles || []).map((profile) => profile.id).filter(Boolean);
@@ -220,10 +217,6 @@ export default function RecipeModal({ recipe, currency, searchContext, onClose, 
     }
   };
 
-  const handleOpenPriceTracker = (ingredient) => {
-    setPriceTrackerIngredient(ingredient);
-    setShowPriceTracker(true);
-  };
 
   return createPortal(
     <div className="recipe-modal">
@@ -358,12 +351,7 @@ export default function RecipeModal({ recipe, currency, searchContext, onClose, 
                             🌿
                           </span>
                         ) : null}
-                        <button
-                          onClick={() => handleOpenPriceTracker(name)}
-                          className="btn btn-ghost btn-sm"
-                        >
-                          🏷️
-                        </button>
+
                         <button
                           onClick={() => handleSubstitutes(name)}
                           className="btn btn-ghost btn-sm"
@@ -445,12 +433,7 @@ export default function RecipeModal({ recipe, currency, searchContext, onClose, 
           </div>
         </div>
       )}
-      {showPriceTracker ? (
-        <GroceryPriceTracker
-          initialIngredient={priceTrackerIngredient}
-          onClose={() => setShowPriceTracker(false)}
-        />
-      ) : null}
+
       <NutritionistChat recipe={recipe} />
     </div>,
     document.body

@@ -1,7 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Plus, Send } from 'lucide-react';
-import GroceryPriceTracker from './GroceryPriceTracker';
 import { addToCart } from '../services/groceryCart';
 import {
   addMealToPlan,
@@ -32,8 +31,6 @@ export default function PlannerScreen() {
   const [mealName, setMealName] = useState('');
   const [mealCuisine, setMealCuisine] = useState('');
   const [mealIngredients, setMealIngredients] = useState('');
-  const [trackerIngredient, setTrackerIngredient] = useState('');
-  const [showTracker, setShowTracker] = useState(false);
   const [cartNotice, setCartNotice] = useState('');
 
   const weekStartDate = useMemo(() => {
@@ -109,10 +106,6 @@ export default function PlannerScreen() {
     setTimeout(() => setCartNotice(''), 2000);
   };
 
-  const openTracker = (ingredient = '') => {
-    setTrackerIngredient(ingredient);
-    setShowTracker(true);
-  };
 
   return (
     <div className="container py-8 screen-enter pb-24">
@@ -215,7 +208,6 @@ export default function PlannerScreen() {
             <p className="text-sm text-text-secondary">Auto-generated from your plan.</p>
           </div>
           <div className="flex items-center gap-2">
-            <button onClick={() => openTracker()} className="btn btn-ghost btn-sm">Price Tracker</button>
             <button onClick={handleAddAllToCart} className="btn btn-secondary btn-sm">Add all to Cart</button>
             <button onClick={handleShareList} className="btn btn-secondary btn-sm flex items-center gap-2">
             <Send className="w-4 h-4" /> Share on WhatsApp
@@ -246,13 +238,9 @@ export default function PlannerScreen() {
                       >
                         {checklist[item] ? '✓' : '○'}
                       </button>
-                      <button
-                        onClick={() => openTracker(item)}
-                        className="flex-1 text-left"
-                      >
+                      <span className="flex-1 text-left text-sm font-medium">
                         {item}
-                      </button>
-                      <button onClick={() => openTracker(item)} className="btn btn-ghost btn-sm">🏷️</button>
+                      </span>
                     </div>
                   ))}
                 </div>
@@ -261,12 +249,6 @@ export default function PlannerScreen() {
           </div>
         )}
       </div>
-      {showTracker ? (
-        <GroceryPriceTracker
-          initialIngredient={trackerIngredient}
-          onClose={() => setShowTracker(false)}
-        />
-      ) : null}
     </div>
   );
 }
