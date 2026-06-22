@@ -28,7 +28,7 @@ export const checkAccess = (featureName, userState) => {
   }
   
   // Premium features
-  const premiumFeatures = ['halalifyEngine', 'nutritionistChat', 'splitCart', 'fastingMode'];
+  const premiumFeatures = ['halalifyEngine', 'splitCart', 'fastingMode'];
   if (premiumFeatures.includes(featureName)) {
     return false;
   }

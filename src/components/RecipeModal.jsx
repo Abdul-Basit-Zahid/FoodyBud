@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import ChefMode from './ChefMode';
-import NutritionistChat from './NutritionistChat';
 import { detectUserRegion, isIngredientInSeason } from '../services/seasonalIngredients';
 import { addToCart } from '../services/groceryCart';
 import { createPortal } from 'react-dom';
@@ -433,8 +432,6 @@ export default function RecipeModal({ recipe, currency, searchContext, onClose, 
           </div>
         </div>
       )}
-
-      <NutritionistChat recipe={recipe} />
     </div>,
     document.body
   );

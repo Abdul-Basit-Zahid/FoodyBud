@@ -2,7 +2,6 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { getMealSuggestions } from '../services/deepseek';
 import RecipeModal from './RecipeModal';
-import NutritionistChat from './NutritionistChat';
 import SeasonalAlertBanner from './SeasonalAlertBanner';
 import { addMealToPlan, deriveFlavorTags, getDishImage, getMonday, getTasteProfile, storage } from '../services/foodybud';
 import { detectUserRegion, isIngredientInSeason } from '../services/seasonalIngredients';
@@ -403,8 +402,6 @@ export default function ResultsScreen() {
           onSave={() => handleSaveToHistory(selectedRecipe)}
         />
       )}
-
-      <NutritionistChat recipe={chatRecipe} />
 
       {planTarget ? (
         <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-modal backdrop-blur-md">

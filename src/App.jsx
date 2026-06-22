@@ -8,25 +8,13 @@ import ProfileScreen from './components/ProfileScreen';
 import VotingScreen from './components/VotingScreen';
 import PlannerScreen from './components/PlannerScreen';
 import SmartCartModal from './components/SmartCartModal';
-import NutritionistChat from './components/NutritionistChat';
 import UpgradeModal from './components/UpgradeModal';
 import { logMoodSearch, clearImageSession } from './services/foodybud';
 import { getCartCount } from './services/groceryCart';
 import { getMockUserState } from './services/freemium';
 import { ShieldCheck } from 'lucide-react';
 
-function DietitianPage() {
-  return (
-    <div className="container py-8 screen-enter pb-24">
-      <div className="mb-6">
-        <p className="text-xs uppercase tracking-[0.3em] text-text-secondary">AI Consultant</p>
-        <h1 className="text-3xl font-black font-display">Halal Fiqh & Dietitian AI</h1>
-        <p className="text-sm text-text-secondary mt-1">Screen E-numbers, Mushbooh ingredients, and animal rennet in real-time.</p>
-      </div>
-      <NutritionistChat recipe={{ name: 'General Halal Diet', cuisine: 'Global' }} standalone={true} />
-    </div>
-  );
-}
+
 
 function AppContent() {
   const [showCart, setShowCart] = useState(false);
@@ -81,7 +69,6 @@ function AppContent() {
     { path: '/profile?tab=pantry', label: 'Pantry (Free)', icon: '🧺' },
     { path: '/planner', label: 'Meal Planner', icon: '▦' },
     { action: () => setShowCart(true), label: 'Split-Cart', icon: '🛒' },
-    { path: '/dietitian', label: `Dietitian ${!userState.isPremium ? '🔒' : ''}`, icon: '🕌' },
     { action: () => setShowUpgradeNav(true), label: 'Upgrade ($4.99)', icon: '⚡' },
   ];
 
@@ -157,9 +144,6 @@ function AppContent() {
                   </span>
                 ) : null}
               </button>
-              <button onClick={() => navigate('/dietitian')} className="btn btn-secondary btn-sm hidden md:inline-flex gap-1 items-center">
-                Halal Dietitian {!userState.isPremium ? '🔒' : ''}
-              </button>
               <button onClick={() => setShowUpgradeNav(true)} className="btn btn-primary btn-sm hidden md:inline-flex gap-1 items-center">
                 ⚡ Upgrade ($4.99)
               </button>
@@ -193,7 +177,6 @@ function AppContent() {
           <Route path="/history" element={<HistoryScreen />} />
           <Route path="/profile" element={<ProfileScreen />} />
           <Route path="/planner" element={<PlannerScreen />} />
-          <Route path="/dietitian" element={<DietitianPage />} />
         </Routes>
       </main>
 

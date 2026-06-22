@@ -53,13 +53,6 @@ export default function UpgradeModal({ onClose }) {
                 <span className="text-xs text-text-secondary block text-left">Optimized Suhoor & Iftar windows weighting hydration and slow-release casein.</span>
               </div>
             </li>
-            <li className="flex items-start gap-3 font-medium text-text-primary">
-              <div className="bg-success-light p-1 rounded-full mt-0.5"><Check className="w-4 h-4 text-success" /></div>
-              <div>
-                <strong className="text-text-primary block text-left">Halal Fiqh & Dietitian AI</strong>
-                <span className="text-xs text-text-secondary block text-left">Scan E-numbers, Mushbooh ingredients, and animal rennet in real-time.</span>
-              </div>
-            </li>
           </ul>
 
           <button onClick={handleUpgrade} className="w-full btn btn-primary py-4 text-lg">
